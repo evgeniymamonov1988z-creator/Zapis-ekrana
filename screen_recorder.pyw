@@ -17,15 +17,14 @@ import shutil
 import traceback
 import tempfile
 
-# --- Только одна копия программы (Windows-мьютекс) ---
+# --- Только одна копия программы (сокет) ---
+import socket
 try:
-    import ctypes
-    _kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
-    _kernel32.CreateMutexW(None, False, 'MAMONOV_Screen_Recorder_SingleInstance')
-    if ctypes.get_last_error() == 183:  # ERROR_ALREADY_EXISTS
-        sys.exit(0)
-except Exception:
-    pass
+    _single_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    _single_sock.bind(('127.0.0.1', 51998))
+    _single_sock.listen(1)
+except OSError:
+    sys.exit(0)
 
 
 # ============================================================
