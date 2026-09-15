@@ -17,13 +17,26 @@ import shutil
 import traceback
 import tempfile
 
-# --- Только одна копия программы (сокет) ---
+# --- Только одна копия программы ---
 import socket
+
+# 1. Проверка через сокет
 try:
     _single_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     _single_sock.bind(('127.0.0.1', 51998))
     _single_sock.listen(1)
-except OSError:
+except Exception:
+    # Порт занят — программа уже запущена
+    # Попробуем вывести существующее окно на передний план
+    try:
+        import ctypes
+        _user32 = ctypes.windll.user32
+        _hwnd = _user32.FindWindowW(None, 'Screen Recorder')
+        if _hwnd:
+            _user32.ShowWindow(_hwnd, 9)  # SW_RESTORE
+            _user32.SetForegroundWindow(_hwnd)
+    except Exception:
+        pass
     sys.exit(0)
 
 
