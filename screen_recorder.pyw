@@ -17,6 +17,18 @@ import shutil
 import traceback
 import tempfile
 
+# --- Только одна копия программы ---
+LOCK_FILE = os.path.join(os.path.dirname(os.path.abspath(
+    sys.executable if getattr(sys, 'frozen', False) else __file__)), '.screen_recorder.lock')
+
+try:
+    _lock_fd = open(LOCK_FILE, 'w')
+    import msvcrt
+    msvcrt.locking(_lock_fd.fileno(), msvcrt.LK_NBLCK, 1)
+except (IOError, OSError):
+    # Уже запущена другая копия — выходим
+    sys.exit(0)
+
 
 # ============================================================
 # КЛАСС UPDATER — встроен прямо в программу
