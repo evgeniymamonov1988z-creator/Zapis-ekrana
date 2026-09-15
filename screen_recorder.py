@@ -42,7 +42,12 @@ class Updater:
         cmd += ["-c", "credential.helper="]
         cmd += list(args)
         try:
-            r = subprocess.run(cmd, cwd=self.app_dir, capture_output=True, text=True, timeout=60)
+            si = subprocess.STARTUPINFO()
+            si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            si.wShowWindow = 0  # SW_HIDE
+            r = subprocess.run(cmd, cwd=self.app_dir, capture_output=True, text=True,
+                               timeout=60, startupinfo=si,
+                               creationflags=subprocess.CREATE_NO_WINDOW)
             return r.returncode, r.stdout.strip(), r.stderr.strip()
         except FileNotFoundError:
             return -1, "", "Git is not installed (git-scm.com)"
@@ -121,8 +126,12 @@ class Updater:
         """Перезапустить текущую программу."""
         exe = sys.executable
         script = os.path.abspath(sys.argv[0])
+        si = subprocess.STARTUPINFO()
+        si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        si.wShowWindow = 0  # SW_HIDE
         subprocess.Popen([exe, script],
-                         creationflags=subprocess.CREATE_NEW_PROCESS_GROUP)
+                         startupinfo=si,
+                         creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW)
         try:
             import tkinter as tk
             if tk._default_root:
