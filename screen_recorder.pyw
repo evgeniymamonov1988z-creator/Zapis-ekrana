@@ -20,9 +20,9 @@ import tempfile
 # --- Только одна копия программы (Windows-мьютекс) ---
 try:
     import ctypes
-    kernel32 = ctypes.windll.kernel32
-    _mutex = kernel32.CreateMutexW(None, False, 'MAMONOV_Screen_Recorder_SingleInstance')
-    if ctypes.windll.kernel32.GetLastError() == 183:  # ERROR_ALREADY_EXISTS
+    _kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
+    _kernel32.CreateMutexW(None, False, 'MAMONOV_Screen_Recorder_SingleInstance')
+    if ctypes.get_last_error() == 183:  # ERROR_ALREADY_EXISTS
         sys.exit(0)
 except Exception:
     pass
