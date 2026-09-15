@@ -11,6 +11,7 @@
 
 import os
 import sys
+import subprocess
 
 # --- Перезапуск через pythonw.exe, чтобы не было чёрного окна ---
 if sys.executable.endswith('python.exe') and not os.environ.get('_RESTARTED'):
@@ -19,8 +20,6 @@ if sys.executable.endswith('python.exe') and not os.environ.get('_RESTARTED'):
     if os.path.isfile(pythonw):
         subprocess.Popen([pythonw] + sys.argv)
         sys.exit(0)
-
-import subprocess
 import time
 import shutil
 import traceback
