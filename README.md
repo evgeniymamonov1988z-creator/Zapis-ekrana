@@ -21,10 +21,10 @@
 
 ## Запуск
 ```
-python screen_recorder.py
+python screen_recorder.pyw
 ```
 
 ## Файлы
-- `screen_recorder.py` — основная программа
+- `screen_recorder.pyw` — основная программа
 - `updater.py` — модуль автообновления через Git
 - `install.py` — установщик (ffmpeg + Pillow + ярлык)
