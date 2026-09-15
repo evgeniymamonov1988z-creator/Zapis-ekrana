@@ -247,7 +247,7 @@ def _list_mics_raw(ffmpeg_path):
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             stdin=subprocess.DEVNULL,
-            creationflags=subprocess.CREATE_NEW_CONSOLE,
+            creationflags=subprocess.CREATE_NO_WINDOW,
             startupinfo=si
         )
         proc.wait(timeout=15)
@@ -938,7 +938,7 @@ class ScreenRecorderApp:
                 stdin=subprocess.PIPE,
                 stdout=subprocess.DEVNULL,
                 stderr=ffmpeg_log_f,
-                creationflags=subprocess.CREATE_NEW_CONSOLE | subprocess.CREATE_NEW_PROCESS_GROUP,
+                creationflags=subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP,
                 startupinfo=si
             )
             self._ffmpeg_log_f = ffmpeg_log_f
