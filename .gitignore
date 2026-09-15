@@ -21,3 +21,4 @@ mic_result.txt
 ffmpeg_log.txt
 error.log
 .screen_recorder.lock
+.screen_recorder.pid

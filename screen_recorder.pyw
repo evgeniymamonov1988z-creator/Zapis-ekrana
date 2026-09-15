@@ -18,26 +18,37 @@ import traceback
 import tempfile
 
 # --- Только одна копия программы ---
-import socket
+import ctypes
 
-# 1. Проверка через сокет
-try:
-    _single_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    _single_sock.bind(('127.0.0.1', 51998))
-    _single_sock.listen(1)
-except Exception:
-    # Порт занят — программа уже запущена
-    # Попробуем вывести существующее окно на передний план
+# 1. Найти окно по заголовку (если программа уже запущена)
+_hwnd = ctypes.windll.user32.FindWindowW(None, 'Screen Recorder')
+if _hwnd:
+    ctypes.windll.user32.ShowWindow(_hwnd, 9)  # SW_RESTORE
+    ctypes.windll.user32.SetForegroundWindow(_hwnd)
+    sys.exit(0)
+
+# 2. Проверить PID-файл (на случай если окно ещё не создалось)
+_PID_FILE = os.path.join(os.path.dirname(os.path.abspath(
+    sys.executable if getattr(sys, 'frozen', False) else __file__)), '.screen_recorder.pid')
+if os.path.isfile(_PID_FILE):
     try:
-        import ctypes
-        _user32 = ctypes.windll.user32
-        _hwnd = _user32.FindWindowW(None, 'Screen Recorder')
-        if _hwnd:
-            _user32.ShowWindow(_hwnd, 9)  # SW_RESTORE
-            _user32.SetForegroundWindow(_hwnd)
+        with open(_PID_FILE, 'r') as f:
+            old_pid = f.read().strip()
+        if old_pid:
+            _proc = ctypes.windll.kernel32.OpenProcess(0x100000, False, int(old_pid))  # SYNCHRONIZE
+            if _proc:
+                ctypes.windll.kernel32.CloseHandle(_proc)
+                # Процесс ещё жив — выходим
+                sys.exit(0)
+            else:
+                # Процесс мёртв — удаляем старый файл
+                os.remove(_PID_FILE)
     except Exception:
         pass
-    sys.exit(0)
+
+# Записать свой PID
+with open(_PID_FILE, 'w') as f:
+    f.write(str(os.getpid()))
 
 
 # ============================================================
