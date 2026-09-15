@@ -1,2 +1,2 @@
 @echo off
-start "" pythonw.exe "%~dp0screen_recorder.py"
+start "" /D"%~dp0" pythonw.exe "screen_recorder.py"
