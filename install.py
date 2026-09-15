@@ -213,6 +213,11 @@ def create_shortcut():
     except ImportError:
         has_winshell = False
 
+    # Путь к pythonw.exe (без чёрного окна)
+    pythonw_path = sys.executable.replace('python.exe', 'pythonw.exe')
+    if not os.path.isfile(pythonw_path):
+        pythonw_path = sys.executable  # fallback
+
     desktop = os.path.join(os.path.expanduser('~'), 'Desktop')
 
     # Попробуем через winshell
@@ -222,8 +227,8 @@ def create_shortcut():
             shortcut = winshell.shortcut(
                 os.path.join(desktop, 'MAMONOV Запись экрана.lnk')
             )
-            shortcut.path = sys.executable
-            shortcut.arguments = f'"{os.path.abspath("recorder.py")}"'
+            shortcut.path = pythonw_path
+            shortcut.arguments = f'"{os.path.abspath("screen_recorder.pyw")}"'
             shortcut.working_dir = os.path.abspath('.')
             shortcut.description = 'MAMONOV Запись экрана'
             shortcut.write()
@@ -237,8 +242,8 @@ def create_shortcut():
         ps_script = f'''
 $ws = New-Object -ComObject WScript.Shell
 $sc = $ws.CreateShortcut("{os.path.join(desktop, 'MAMONOV Запись экрана.lnk')}")
-$sc.TargetPath = "{sys.executable}"
-$sc.Arguments = ""{os.path.abspath('recorder.py')}""
+$sc.TargetPath = "{pythonw_path}"
+$sc.Arguments = ""{os.path.abspath('screen_recorder.pyw')}""
 $sc.WorkingDirectory = "{os.path.abspath('.')}"
 $sc.Description = "MAMONOV Запись экрана"
 $sc.Save()
@@ -251,7 +256,7 @@ $sc.Save()
         return True
     except Exception as e:
         print(f'  ✗ Не удалось создать ярлык: {e}')
-        print(f'  Запустите вручную: python recorder.py')
+        print(f'  Запустите вручную: pythonw screen_recorder.pyw')
         return False
 
 
@@ -289,7 +294,7 @@ def main():
     print('=' * 50)
     if ok:
         print('  ✓ Всё установлено! Запустите программу:')
-        print('    python recorder.py')
+        print('    pythonw screen_recorder.pyw')
         print('  Или через ярлык на рабочем столе.')
     else:
         print('  ⚠ Часть компонентов не установлена.')
