@@ -10,3 +10,13 @@ dist/
 venv/
 .env
 recordings/
+
+# Локальные файлы, которых нет в репозитории
+bin/
+lib/
+*.log
+mic_debug_raw.txt
+mic_debug_hex.txt
+mic_result.txt
+ffmpeg_log.txt
+error.log
