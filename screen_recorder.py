@@ -17,6 +17,125 @@ import shutil
 import traceback
 import tempfile
 
+
+# ============================================================
+# КЛАСС UPDATER — встроен прямо в программу
+# (отдельный файл updater.py больше не нужен)
+# ============================================================
+
+class Updater:
+    """Обновление программы через Git-репозиторий."""
+
+    def __init__(self, repo_url, branch="master", app_dir=None, ssl_verify=False):
+        self.repo_url = repo_url
+        self.branch = branch
+        self.ssl_verify = ssl_verify
+        self.app_dir = app_dir or os.path.dirname(os.path.abspath(
+            sys.executable if getattr(sys, 'frozen', False) else __file__))
+
+    def _git(self, *args):
+        """Запуск git. Возвращает (returncode, stdout, stderr)."""
+        cmd = ["git"]
+        if not self.ssl_verify:
+            cmd += ["-c", "http.sslVerify=false"]
+        cmd += ["-c", "core.autocrlf=false"]
+        cmd += ["-c", "credential.helper="]
+        cmd += list(args)
+        try:
+            r = subprocess.run(cmd, cwd=self.app_dir, capture_output=True, text=True, timeout=60)
+            return r.returncode, r.stdout.strip(), r.stderr.strip()
+        except FileNotFoundError:
+            return -1, "", "Git is not installed (git-scm.com)"
+        except subprocess.TimeoutExpired:
+            return -2, "", "Timeout — check internet"
+        except Exception as e:
+            return -3, "", str(e)
+
+    def _is_repo(self):
+        """Папка уже Git-репозиторий?"""
+        return os.path.isdir(os.path.join(self.app_dir, ".git"))
+
+    def connect(self):
+        """Подключить папку к репозиторию. Возвращает (True/False, сообщение)."""
+        rc, _, err = self._git("--version")
+        if rc != 0:
+            return False, err or "git is not installed"
+
+        if self._is_repo():
+            return True, "Already connected"
+
+        rc, _, err = self._git("init")
+        if rc != 0:
+            return False, f"git init failed: {err}"
+
+        rc, _, err = self._git("remote", "add", "origin", self.repo_url)
+        if rc != 0:
+            self._cleanup_git()
+            return False, f"remote add failed: {err}"
+
+        rc, _, err = self._git("fetch", "origin", self.branch)
+        if rc != 0:
+            self._cleanup_git()
+            return False, f"fetch failed: {err}"
+
+        self._git("checkout", "-b", self.branch)
+
+        rc, _, err = self._git("reset", "--hard", f"origin/{self.branch}")
+        if rc != 0:
+            self._cleanup_git()
+            return False, f"reset failed: {err}"
+
+        return True, "Connected!"
+
+    def update(self):
+        """Обновить программу. Если не подключено — подключит автоматически.
+        Возвращает (True/False, сообщение)."""
+        rc, _, err = self._git("--version")
+        if rc != 0:
+            return False, err or "git is not installed"
+
+        if not self._is_repo():
+            ok, msg = self.connect()
+            if not ok:
+                return False, msg
+            return True, "Connected and updated!"
+
+        self._git("remote", "set-url", "origin", self.repo_url)
+        self._git("checkout", "--", ".")
+        # НЕ делаем git clean -fd — он удаляет bin/, lib/ и другие локальные файлы!
+
+        rc, out, err = self._git("pull", "--rebase", "origin", self.branch)
+        if rc != 0:
+            self._git("fetch", "origin", self.branch)
+            self._git("reset", "--hard", f"origin/{self.branch}")
+            rc2, out2, err2 = self._git("pull", "origin", self.branch)
+            if rc2 != 0:
+                return False, f"Update failed: {err}"
+
+        if "Already up to date" in out or "Already up-to-date" in out:
+            return True, "Already up to date"
+
+        return True, "Updated!"
+
+    def restart(self):
+        """Перезапустить текущую программу."""
+        exe = sys.executable
+        script = os.path.abspath(sys.argv[0])
+        subprocess.Popen([exe, script],
+                         creationflags=subprocess.CREATE_NEW_PROCESS_GROUP)
+        try:
+            import tkinter as tk
+            if tk._default_root:
+                tk._default_root.destroy()
+        except Exception:
+            os._exit(0)
+
+    def _cleanup_git(self):
+        """Удалить .git если что-то пошло не так."""
+        git_dir = os.path.join(self.app_dir, ".git")
+        shutil.rmtree(git_dir, ignore_errors=True)
+
+
 # --- Папка программы ---
 APP_DIR = os.path.dirname(os.path.abspath(sys.executable if getattr(sys, 'frozen', False) else __file__))
 
@@ -909,7 +1028,6 @@ class ScreenRecorderApp:
         self.lbl_status.config(text="Обновляю...", fg="#cccc00")
         self.root.update()
         try:
-            from updater import Updater
             upd = Updater(
                 repo_url="https://oauth2:pv1_hXF132xz40gjb3875E5ag1m465A5iJ2794N052mF0g7sGZ6F773I0912wEZ1F675_1822378402@git.sourcecraft.dev/evgeniymamonov1988/screen-recorder.git",
                 branch="master",
