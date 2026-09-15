@@ -106,12 +106,14 @@ class Updater:
             return True, "Connected and updated!"
 
         self._git("remote", "set-url", "origin", self.repo_url)
-        self._git("checkout", "--", ".")
-        # НЕ делаем git clean -fd — он удаляет bin/, lib/ и другие локальные файлы!
 
+        # Сначала fetch — узнаем что нового в репо
+        self._git("fetch", "origin", self.branch)
+
+        # Простой pull с rebase (без checkout -- . — он откатывает файлы к старой версии)
         rc, out, err = self._git("pull", "--rebase", "origin", self.branch)
         if rc != 0:
-            self._git("fetch", "origin", self.branch)
+            # Конфликт — жёсткий сброс до версии из репо
             self._git("reset", "--hard", f"origin/{self.branch}")
             rc2, out2, err2 = self._git("pull", "origin", self.branch)
             if rc2 != 0:

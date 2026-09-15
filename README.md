@@ -20,11 +20,11 @@
 - Git (для автообновления)
 
 ## Запуск
-```
-python screen_recorder.pyw
-```
+Двойной клик по `start.cmd` — откроет программу без чёрного окна.
+
+Или вручную: `pythonw screen_recorder.py`
 
 ## Файлы
-- `screen_recorder.pyw` — основная программа
-- `updater.py` — модуль автообновления через Git
+- `screen_recorder.py` — основная программа (со встроенным Updater)
+- `start.cmd` — запуск через pythonw (без консоли)
 - `install.py` — установщик (ffmpeg + Pillow + ярлык)
