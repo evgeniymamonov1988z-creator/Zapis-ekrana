@@ -19,6 +19,7 @@ import shutil
 import traceback
 import tempfile
 import locale
+import datetime
 
 # --- Определяем язык интерфейса ---
 def _detect_lang():
@@ -77,6 +78,14 @@ T = {
         'error_main': 'Ошибка при запуска:\n\n{}',
         'error_tkinter': 'Не удалось загрузить tkinter:\n{}\n\nУстановите Python с python.org (не Microsoft Store)',
         'error_copy_btn': '\U0001f4cb Копировать',
+        # Демо
+        'demo_title': 'Screen Recorder — ДЕМО',
+        'demo_days_3': 'ДЕМО — 3 дня',
+        'demo_days_2': 'ДЕМО — 2 дня',
+        'demo_days_1': 'ДЕМО — 1 день',
+        'demo_expired': 'Демо кончилось',
+        'demo_buy': 'Купить →',
+        'demo_buy_link': 'https://evgeniymamonov.com',
     },
     'en': {
         'title': 'Screen Recorder',
@@ -110,6 +119,14 @@ T = {
         'error_main': 'Startup error:\n\n{}',
         'error_tkinter': 'Failed to load tkinter:\n{}\n\nInstall Python from python.org (not Microsoft Store)',
         'error_copy_btn': '\U0001f4cb Copy',
+        # Demo
+        'demo_title': 'Screen Recorder — DEMO',
+        'demo_days_3': 'DEMO — 3 days',
+        'demo_days_2': 'DEMO — 2 days',
+        'demo_days_1': 'DEMO — 1 day',
+        'demo_expired': 'Demo expired',
+        'demo_buy': 'Buy →',
+        'demo_buy_link': 'https://evgeniymamonov.com',
     },
 }
 
@@ -217,6 +234,48 @@ try:
 except ImportError as e:
     _show_error(t('error_tkinter', e))
     sys.exit(1)
+
+
+# ============================================================
+# ДЕМО — 3 дня, потом блокировка
+# Дата записывается в %APPDATA%\MAMONOV\ при первом запуске
+# ============================================================
+_DEMO_DAYS = 3
+_DEMO_DIR = os.path.join(os.environ.get('APPDATA', os.path.expanduser('~')), 'MAMONOV')
+_DEMO_FILE = os.path.join(_DEMO_DIR, '.sr_demo')
+
+
+def _demo_check():
+    """Проверить демо-статус. Возвращает:
+        ('ok', days_left)  — демо действует, дней осталось
+        ('expired', 0)     — демо кончилось
+    """
+    try:
+        os.makedirs(_DEMO_DIR, exist_ok=True)
+
+        # Есть файл с датой?
+        if os.path.isfile(_DEMO_FILE):
+            with open(_DEMO_FILE, 'r') as f:
+                first_run = f.read().strip()
+            first_date = datetime.datetime.strptime(first_run, '%Y-%m-%d').date()
+        else:
+            # Первый запуск — записываем сегодняшнюю дату
+            today = datetime.date.today()
+            with open(_DEMO_FILE, 'w') as f:
+                f.write(today.strftime('%Y-%m-%d'))
+            first_date = today
+
+        # Сколько дней прошло
+        days_passed = (datetime.date.today() - first_date).days
+        days_left = _DEMO_DAYS - days_passed
+
+        if days_left <= 0:
+            return ('expired', 0)
+        return ('ok', days_left)
+
+    except Exception:
+        # Ошибка чтения — даём работать (на всякий случай)
+        return ('ok', _DEMO_DAYS)
 
 
 # ============================================================
@@ -452,6 +511,12 @@ class ScreenRecorderApp:
         self.root.configure(bg="#2b2b2b")
         self.root.attributes("-topmost", True)
 
+        # Демо-проверка
+        self.demo_status, self.demo_days = _demo_check()
+        self.demo_expired = (self.demo_status == 'expired')
+        if self.demo_expired:
+            self.root.title(t('demo_title'))
+
         self.ffmpeg = find_ffmpeg()
         self.process = None
         self.timer_id = None
@@ -517,6 +582,28 @@ class ScreenRecorderApp:
                                   activebackground="#0099ee")
         self.btn_save.pack(side="left", padx=6)
 
+        # Демо-строка (золотая)
+        if self.demo_expired:
+            demo_text = t('demo_expired')
+        else:
+            days_key = {3: 'demo_days_3', 2: 'demo_days_2', 1: 'demo_days_1'}.get(self.demo_days, f'demo_days_{self.demo_days}')
+            demo_text = t(days_key) if days_key in T.get(LANG, T['en']) else f'ДЕМО — {self.demo_days} дней'
+
+        frm_demo = tk.Frame(self.frm_top, bg="#2b2b2b")
+        frm_demo.pack(fill="x", pady=(0, 2))
+
+        self.lbl_demo = tk.Label(frm_demo, text=demo_text,
+                                 font=("Segoe UI", 9, "bold"),
+                                 fg="#DAA520", bg="#2b2b2b")
+        self.lbl_demo.pack()
+
+        if self.demo_expired:
+            # Ссылка «Купить →»
+            self.lbl_buy = tk.Label(frm_demo, text=t('demo_buy'),
+                                    font=("Segoe UI", 9, "bold"),
+                                    fg="#0099ee", bg="#2b2b2b", cursor="hand2")
+            self.lbl_buy.pack(pady=(0, 4))
+            self.lbl_buy.bind("<Button-1>", self._open_buy_link)
 
         self.frm_detail = tk.Frame(self.root, bg="#2b2b2b")
         self.frm_detail.pack(fill="x")
@@ -652,8 +739,16 @@ class ScreenRecorderApp:
 
     # --- Проверка зависимостей ---
 
+    # --- Ссылка «Купить» ---
+
+    def _open_buy_link(self, event=None):
+        import webbrowser
+        webbrowser.open(t('demo_buy_link'))
+
     def _check_deps(self):
-        if not self.ffmpeg:
+        if self.demo_expired:
+            self.lbl_status.config(text=t('demo_expired'), fg="#cc3333")
+        elif not self.ffmpeg:
             self.lbl_status.config(text=t('status_no_ffmpeg'), fg="#cc3333")
         elif self.mic_display:
             d = self.mic_display if len(self.mic_display) < 35 else self.mic_display[:32] + "..."
@@ -688,18 +783,22 @@ class ScreenRecorderApp:
 
     def _update_ui(self):
         audio_ok = self.mic_name is not None
+        if self.demo_expired:
+            self.btn_rec.config(state="disabled")
+            self.btn_save.config(state="disabled")
+            return
         if self.state == "idle":
-            self.btn_rec.config(text=t('btn_rec'), bg="#cc3333")
+            self.btn_rec.config(state="normal", text=t('btn_rec'), bg="#cc3333")
             self.btn_save.config(state="normal")
             self.cv_video.itemconfig(self.lamp_video, fill="#cc3333")
             self.cv_audio.itemconfig(self.lamp_audio, fill="#00cc66" if audio_ok else "#666666")
         elif self.state == "recording":
-            self.btn_rec.config(text=t('btn_pause'), bg="#cc8800")
+            self.btn_rec.config(state="normal", text=t('btn_pause'), bg="#cc8800")
             self.btn_save.config(state="disabled")
             self.cv_video.itemconfig(self.lamp_video, fill="#00cc66")
             self.cv_audio.itemconfig(self.lamp_audio, fill="#00cc66" if audio_ok else "#cc3333")
         elif self.state == "paused":
-            self.btn_rec.config(text=t('btn_resume'), bg="#00cc66")
+            self.btn_rec.config(state="normal", text=t('btn_resume'), bg="#00cc66")
             self.btn_save.config(state="normal")
             self.cv_video.itemconfig(self.lamp_video, fill="#cc8800")
             self.cv_audio.itemconfig(self.lamp_audio, fill="#cc8800" if audio_ok else "#666666")
@@ -787,6 +886,8 @@ class ScreenRecorderApp:
     # ============================================================
 
     def _on_rec_button(self):
+        if self.demo_expired:
+            return
         if self.state == "idle":
             self._start_recording()
         elif self.state == "recording":
@@ -837,6 +938,8 @@ class ScreenRecorderApp:
     # ============================================================
 
     def _on_save_button(self):
+        if self.demo_expired:
+            return
         if self.state == "recording":
             self._stop_ffmpeg()
             if self.current_segment and os.path.isfile(self.current_segment):
