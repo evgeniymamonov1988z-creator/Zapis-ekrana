@@ -50,7 +50,6 @@ T = {
         'btn_pause': '\u25a0  Пауза',
         'btn_resume': '\u25b6  Продолжить',
         'btn_save': '\u2b07  Сохранить',
-        'btn_update': '\u21bb  Обновить',
         'btn_log': '\U0001f4cb  Лог',
         'btn_hide_log': '\U0001f4cb  Скрыть лог',
         'btn_copied': '\U0001f4cb  Скопировано!',
@@ -62,8 +61,6 @@ T = {
         'status_saved': 'Сохранено: {}',
         'status_no_file': 'Файл не найден! Сначала запиши.',
         'status_copy': 'Скопировано!',
-        'status_updating': 'Обновляю...',
-        'status_update_error': 'Ошибка обновления: {}',
         'status_start_error': 'Ошибка запуска: {}',
         'status_ffmpeg_crash': 'ffmpeg упал: {}',
         'label_audio': 'Звук',
@@ -80,7 +77,6 @@ T = {
         'error_main': 'Ошибка при запуска:\n\n{}',
         'error_tkinter': 'Не удалось загрузить tkinter:\n{}\n\nУстановите Python с python.org (не Microsoft Store)',
         'error_copy_btn': '\U0001f4cb Копировать',
-        # Update messages from Updater — не переводим (технические)
     },
     'en': {
         'title': 'Screen Recorder',
@@ -88,7 +84,6 @@ T = {
         'btn_pause': '\u25a0  Pause',
         'btn_resume': '\u25b6  Resume',
         'btn_save': '\u2b07  Save',
-        'btn_update': '\u21bb  Update',
         'btn_log': '\U0001f4cb  Log',
         'btn_hide_log': '\U0001f4cb  Hide log',
         'btn_copied': '\U0001f4cb  Copied!',
@@ -100,8 +95,6 @@ T = {
         'status_saved': 'Saved: {}',
         'status_no_file': 'File not found! Record first.',
         'status_copy': 'Copied!',
-        'status_updating': 'Updating...',
-        'status_update_error': 'Update error: {}',
         'status_start_error': 'Start error: {}',
         'status_ffmpeg_crash': 'ffmpeg crashed: {}',
         'label_audio': 'Audio',
@@ -163,135 +156,6 @@ if os.path.isfile(_PID_FILE):
 # Записать свой PID
 with open(_PID_FILE, 'w') as f:
     f.write(str(os.getpid()))
-
-
-# ============================================================
-# КЛАСС UPDATER — встроен прямо в программу
-# (отдельный файл updater.py больше не нужен)
-# ============================================================
-
-class Updater:
-    """Обновление программы через Git-репозиторий."""
-
-    def __init__(self, repo_url, branch="master", app_dir=None, ssl_verify=False):
-        self.repo_url = repo_url
-        self.branch = branch
-        self.ssl_verify = ssl_verify
-        self.app_dir = app_dir or os.path.dirname(os.path.abspath(
-            sys.executable if getattr(sys, 'frozen', False) else __file__))
-
-    def _git(self, *args):
-        """Запуск git. Возвращает (returncode, stdout, stderr)."""
-        cmd = ["git"]
-        if not self.ssl_verify:
-            cmd += ["-c", "http.sslVerify=false"]
-        cmd += ["-c", "core.autocrlf=false"]
-        cmd += ["-c", "credential.helper="]
-        cmd += list(args)
-        try:
-            si = subprocess.STARTUPINFO()
-            si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-            si.wShowWindow = 0  # SW_HIDE
-            r = subprocess.run(cmd, cwd=self.app_dir, capture_output=True, text=True,
-                               timeout=60, startupinfo=si,
-                               creationflags=subprocess.CREATE_NO_WINDOW)
-            return r.returncode, r.stdout.strip(), r.stderr.strip()
-        except FileNotFoundError:
-            return -1, "", "Git is not installed (git-scm.com)"
-        except subprocess.TimeoutExpired:
-            return -2, "", "Timeout — check internet"
-        except Exception as e:
-            return -3, "", str(e)
-
-    def _is_repo(self):
-        """Папка уже Git-репозиторий?"""
-        return os.path.isdir(os.path.join(self.app_dir, ".git"))
-
-    def connect(self):
-        """Подключить папку к репозиторию. Возвращает (True/False, сообщение)."""
-        rc, _, err = self._git("--version")
-        if rc != 0:
-            return False, err or "git is not installed"
-
-        if self._is_repo():
-            return True, "Already connected"
-
-        rc, _, err = self._git("init")
-        if rc != 0:
-            return False, f"git init failed: {err}"
-
-        rc, _, err = self._git("remote", "add", "origin", self.repo_url)
-        if rc != 0:
-            self._cleanup_git()
-            return False, f"remote add failed: {err}"
-
-        rc, _, err = self._git("fetch", "origin", self.branch)
-        if rc != 0:
-            self._cleanup_git()
-            return False, f"fetch failed: {err}"
-
-        self._git("checkout", "-b", self.branch)
-
-        rc, _, err = self._git("reset", "--hard", f"origin/{self.branch}")
-        if rc != 0:
-            self._cleanup_git()
-            return False, f"reset failed: {err}"
-
-        return True, "Connected!"
-
-    def update(self):
-        """Обновить программу. Если не подключено — подключит автоматически.
-        Возвращает (True/False, сообщение)."""
-        rc, _, err = self._git("--version")
-        if rc != 0:
-            return False, err or "git is not installed"
-
-        if not self._is_repo():
-            ok, msg = self.connect()
-            if not ok:
-                return False, msg
-            return True, "Connected and updated!"
-
-        self._git("remote", "set-url", "origin", self.repo_url)
-
-        # Сначала fetch — узнаем что нового в репо
-        self._git("fetch", "origin", self.branch)
-
-        # Простой pull с rebase
-        rc, out, err = self._git("pull", "--rebase", "origin", self.branch)
-        if rc != 0:
-            # Конфликт — жёсткий сброс до версии из репо
-            self._git("reset", "--hard", f"origin/{self.branch}")
-            rc2, out2, err2 = self._git("pull", "origin", self.branch)
-            if rc2 != 0:
-                return False, f"Update failed: {err}"
-
-        if "Already up to date" in out or "Already up-to-date" in out:
-            return True, "Already up to date"
-
-        return True, "Updated!"
-
-    def restart(self):
-        """Перезапустить текущую программу."""
-        exe = sys.executable
-        script = os.path.abspath(sys.argv[0])
-        si = subprocess.STARTUPINFO()
-        si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-        si.wShowWindow = 0  # SW_HIDE
-        subprocess.Popen([exe, script],
-                         startupinfo=si,
-                         creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW)
-        try:
-            import tkinter as tk
-            if tk._default_root:
-                tk._default_root.destroy()
-        except Exception:
-            os._exit(0)
-
-    def _cleanup_git(self):
-        """Удалить .git если что-то пошло не так."""
-        git_dir = os.path.join(self.app_dir, ".git")
-        shutil.rmtree(git_dir, ignore_errors=True)
 
 
 # --- Папка программы ---
@@ -653,14 +517,6 @@ class ScreenRecorderApp:
                                   activebackground="#0099ee")
         self.btn_save.pack(side="left", padx=6)
 
-        frm_btn2 = tk.Frame(self.frm_top, bg="#2b2b2b")
-        frm_btn2.pack(pady=(0, 4))
-
-        self.btn_update = tk.Button(frm_btn2, text=t('btn_update'), font=("Segoe UI", 11),
-                                   width=26, command=self._run_update,
-                                   bg="#555555", fg="#ffffff", relief="flat",
-                                   activebackground="#777777")
-        self.btn_update.pack()
 
         self.frm_detail = tk.Frame(self.root, bg="#2b2b2b")
         self.frm_detail.pack(fill="x")
@@ -1181,26 +1037,7 @@ class ScreenRecorderApp:
 
     # --- Обновление ---
 
-    def _run_update(self):
-        self.lbl_status.config(text=t('status_updating'), fg="#cccc00")
-        self.root.update()
-        try:
-            upd = Updater(
-                repo_url="https://oauth2:pv1_hXF132xz40gjb3875E5ag1m465A5iJ2794N052mF0g7sGZ6F773I0912wEZ1F675_1822378402@git.sourcecraft.dev/evgeniymamonov1988/screen-recorder.git",
-                branch="master",
-            )
-            ok, msg = upd.update()
-            if ok:
-                self._log(f"update ok: {msg}")
-                self.lbl_status.config(text=msg, fg="#00cc66")
-                self.root.after(2000, lambda: (self._stop_ffmpeg(), upd.restart()))
-            else:
-                self._log(f"update fail: {msg}")
-                self.lbl_status.config(text=msg, fg="#cc3333")
-        except Exception as e:
-            err = traceback.format_exc()
-            self._log(f"update error: {err}")
-            self.lbl_status.config(text=t('status_update_error', e), fg="#cc3333")
+
 
 
 # ============================================================
