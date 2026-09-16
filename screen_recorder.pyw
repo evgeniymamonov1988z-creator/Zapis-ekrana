@@ -7,6 +7,8 @@
   Запись -> Пауза -> Продолжить -> Пауза -> ... -> Сохранить
   Кнопка "Запись" переключает: старт / пауза / продолжить
   Кнопка "Сохранить" — финал: стоп, склейка, файл готов
+
+Язык: русский / английский (по языку системы)
 '''
 
 import os
@@ -16,12 +18,124 @@ import time
 import shutil
 import traceback
 import tempfile
+import locale
+
+# --- Определяем язык интерфейса ---
+def _detect_lang():
+    """Определить язык системы: 'ru' или 'en'."""
+    try:
+        lang = locale.getdefaultlocale()[0]
+        if lang and lang.lower().startswith('ru'):
+            return 'ru'
+    except Exception:
+        pass
+    try:
+        import ctypes
+        windll = ctypes.windll.kernel32
+        lang_id = windll.GetUserDefaultUILanguage()
+        # Russian: 0x0419, Ukrainian: 0x0422, Belarusian: 0x0423
+        if lang_id in (0x0419, 0x0422, 0x0423):
+            return 'ru'
+    except Exception:
+        pass
+    return 'en'
+
+LANG = _detect_lang()
+
+# --- Словарь строк ---
+T = {
+    'ru': {
+        'title': 'Screen Recorder',
+        'btn_rec': '\u25cf  Запись',
+        'btn_pause': '\u25a0  Пауза',
+        'btn_resume': '\u25b6  Продолжить',
+        'btn_save': '\u2b07  Сохранить',
+        'btn_update': '\u21bb  Обновить',
+        'btn_log': '\U0001f4cb  Лог',
+        'btn_hide_log': '\U0001f4cb  Скрыть лог',
+        'btn_copied': '\U0001f4cb  Скопировано!',
+        'status_ready_mic': 'Готово | Микрофон: {}{}',
+        'status_ready_no_mic': 'Готово | Микрофон не найден',
+        'status_no_ffmpeg': 'ffmpeg не найден',
+        'status_recording': 'Запись...',
+        'status_paused': 'Пауза',
+        'status_saved': 'Сохранено: {}',
+        'status_no_file': 'Файл не найден! Сначала запиши.',
+        'status_copy': 'Скопировано!',
+        'status_updating': 'Обновляю...',
+        'status_update_error': 'Ошибка обновления: {}',
+        'status_start_error': 'Ошибка запуска: {}',
+        'status_ffmpeg_crash': 'ffmpeg упал: {}',
+        'label_audio': 'Звук',
+        'label_audio_off': 'Звук \u2717',
+        'label_video': 'Видео',
+        'log_mic': 'микрофон: {}',
+        'log_mic_not_found': 'микрофон не найден',
+        # Окно ошибки
+        'error_title': 'Screen Recorder — Ошибка',
+        'error_label': 'Ошибка запуска:',
+        'error_copy': '\U0001f4cb Копировать',
+        'error_copied': 'Скопировано!',
+        'error_ok': 'OK',
+        'error_main': 'Ошибка при запуска:\n\n{}',
+        'error_tkinter': 'Не удалось загрузить tkinter:\n{}\n\nУстановите Python с python.org (не Microsoft Store)',
+        'error_copy_btn': '\U0001f4cb Копировать',
+        # Update messages from Updater — не переводим (технические)
+    },
+    'en': {
+        'title': 'Screen Recorder',
+        'btn_rec': '\u25cf  Record',
+        'btn_pause': '\u25a0  Pause',
+        'btn_resume': '\u25b6  Resume',
+        'btn_save': '\u2b07  Save',
+        'btn_update': '\u21bb  Update',
+        'btn_log': '\U0001f4cb  Log',
+        'btn_hide_log': '\U0001f4cb  Hide log',
+        'btn_copied': '\U0001f4cb  Copied!',
+        'status_ready_mic': 'Ready | Mic: {}{}',
+        'status_ready_no_mic': 'Ready | Mic not found',
+        'status_no_ffmpeg': 'ffmpeg not found',
+        'status_recording': 'Recording...',
+        'status_paused': 'Paused',
+        'status_saved': 'Saved: {}',
+        'status_no_file': 'File not found! Record first.',
+        'status_copy': 'Copied!',
+        'status_updating': 'Updating...',
+        'status_update_error': 'Update error: {}',
+        'status_start_error': 'Start error: {}',
+        'status_ffmpeg_crash': 'ffmpeg crashed: {}',
+        'label_audio': 'Audio',
+        'label_audio_off': 'Audio \u2717',
+        'label_video': 'Video',
+        'log_mic': 'mic: {}',
+        'log_mic_not_found': 'mic not found',
+        'error_title': 'Screen Recorder — Error',
+        'error_label': 'Startup error:',
+        'error_copy': '\U0001f4cb Copy',
+        'error_copied': 'Copied!',
+        'error_ok': 'OK',
+        'error_main': 'Startup error:\n\n{}',
+        'error_tkinter': 'Failed to load tkinter:\n{}\n\nInstall Python from python.org (not Microsoft Store)',
+        'error_copy_btn': '\U0001f4cb Copy',
+    },
+}
+
+def t(key, *args):
+    """Получить строку на текущем языке с подстановкой аргументов."""
+    s = T.get(LANG, T['en']).get(key, T['en'].get(key, key))
+    if args:
+        try:
+            s = s.format(*args)
+        except Exception:
+            pass
+    return s
+
 
 # --- Только одна копия программы ---
 import ctypes
 
 # 1. Найти окно по заголовку (если программа уже запущена)
-_hwnd = ctypes.windll.user32.FindWindowW(None, 'Screen Recorder')
+_hwnd = ctypes.windll.user32.FindWindowW(None, t('title'))
 if _hwnd:
     ctypes.windll.user32.ShowWindow(_hwnd, 9)  # SW_RESTORE
     ctypes.windll.user32.SetForegroundWindow(_hwnd)
@@ -143,7 +257,7 @@ class Updater:
         # Сначала fetch — узнаем что нового в репо
         self._git("fetch", "origin", self.branch)
 
-        # Простой pull с rebase (без checkout -- . — он откатывает файлы к старой версии)
+        # Простой pull с rebase
         rc, out, err = self._git("pull", "--rebase", "origin", self.branch)
         if rc != 0:
             # Конфликт — жёсткий сброс до версии из репо
@@ -197,10 +311,10 @@ def _show_error(msg):
     try:
         import tkinter as tk
         root = tk.Tk()
-        root.title("Screen Recorder — Ошибка")
+        root.title(t('error_title'))
         root.geometry("600x350")
         root.configure(bg="#2b2b2b")
-        tk.Label(root, text="Ошибка запуска:", font=("Segoe UI", 14, "bold"),
+        tk.Label(root, text=t('error_label'), font=("Segoe UI", 14, "bold"),
                  fg="#cc3333", bg="#2b2b2b").pack(pady=(15, 5))
         txt = tk.Text(root, font=("Consolas", 10), bg="#1a1a1a", fg="#ff6666",
                       wrap="word", height=12, width=65)
@@ -211,19 +325,19 @@ def _show_error(msg):
             try:
                 root.clipboard_clear()
                 root.clipboard_append(msg)
-                btn_copy.config(text="Скопировано!")
-                root.after(1500, lambda: btn_copy.config(text="📋 Копировать"))
+                btn_copy.config(text=t('error_copied'))
+                root.after(1500, lambda: btn_copy.config(text=t('error_copy')))
             except Exception:
                 pass
 
         txt.config(state="disabled")
         frm_btn = tk.Frame(root, bg="#2b2b2b")
         frm_btn.pack(pady=5)
-        btn_copy = tk.Button(frm_btn, text="📋 Копировать", command=_copy_error,
+        btn_copy = tk.Button(frm_btn, text=t('error_copy'), command=_copy_error,
                              bg="#3c3c3c", fg="#ffffff", relief="flat", width=14,
                              font=("Segoe UI", 10))
         btn_copy.pack(side="left", padx=5)
-        tk.Button(frm_btn, text="OK", command=root.destroy,
+        tk.Button(frm_btn, text=t('error_ok'), command=root.destroy,
                   bg="#3c3c3c", fg="#ffffff", relief="flat", width=10,
                   font=("Segoe UI", 10)).pack(side="left", padx=5)
         root.mainloop()
@@ -237,7 +351,7 @@ try:
     import tkinter as tk
     from tkinter import scrolledtext
 except ImportError as e:
-    _show_error(f"Не удалось загрузить tkinter:\n{e}\n\nУстановите Python с python.org (не Microsoft Store)")
+    _show_error(t('error_tkinter', e))
     sys.exit(1)
 
 
@@ -412,20 +526,20 @@ def pick_mic(ffmpeg_path):
                     ascii_part = "".join(chr(b) if 32 <= b < 127 else "." for b in chunk)
                     f.write(f"{i:04x}  {hex_part:<48}  {ascii_part}\n")
                 if b"@device_" in raw:
-                    f.write(f"\n>>> @device_ НАЙДЕН в байтах! <<<\n")
+                    f.write(f"\n>>> @device_ found in bytes! <<<\n")
                 else:
-                    f.write(f"\n>>> @device_ НЕ НАЙДЕН в байтах <<<\n")
+                    f.write(f"\n>>> @device_ NOT found in bytes <<<\n")
                     if b"(audio)" in raw:
-                        f.write(">>> (audio) НАЙДЕН в байтах <<<\n")
+                        f.write(">>> (audio) found in bytes <<<\n")
                     else:
-                        f.write(">>> (audio) НЕ НАЙДЕН в байтах <<<\n")
+                        f.write(">>> (audio) NOT found in bytes <<<\n")
         except Exception:
             pass
 
     # Парсим список
     all_mics = _parse_mics_from_raw(raw)
 
-    # Лог для отладки — ВСЕ записи в одном with
+    # Лог для отладки
     mic_debug_info = os.path.join(APP_DIR, "mic_result.txt")
     with open(mic_debug_info, "w", encoding="utf-8") as f:
         f.write(f"all_mics found: {len(all_mics)}\n")
@@ -435,7 +549,6 @@ def pick_mic(ffmpeg_path):
         if not all_mics:
             f.write("No mics found at all.\n")
         else:
-            # Выбираем первый микрофон с альт. именем (ASCII, надёжно)
             with_alt = [m for m in all_mics if m.get("alt") and "wave_" in m["alt"]]
             if with_alt:
                 m = with_alt[0]
@@ -470,7 +583,7 @@ class ScreenRecorderApp:
 
     def __init__(self, root):
         self.root = root
-        self.root.title("Screen Recorder")
+        self.root.title(t('title'))
         self.root.resizable(False, False)
         self.root.configure(bg="#2b2b2b")
         self.root.attributes("-topmost", True)
@@ -516,7 +629,7 @@ class ScreenRecorderApp:
         # Лог
         self._log("MAMONOV Screen Recorder")
         self._log(f"ffmpeg: {self.ffmpeg or 'NOT FOUND'}")
-        self._log(f"микрофон: {self.mic_display or 'не найден'}")
+        self._log(t('log_mic', self.mic_display) if self.mic_display else t('log_mic_not_found'))
 
     # --- UI ---
     def _build_ui(self):
@@ -528,13 +641,13 @@ class ScreenRecorderApp:
         frm_btn = tk.Frame(self.frm_top, bg="#2b2b2b")
         frm_btn.pack(pady=(4, 6))
 
-        self.btn_rec = tk.Button(frm_btn, text="\u25cf  Запись", font=("Segoe UI", 12, "bold"),
+        self.btn_rec = tk.Button(frm_btn, text=t('btn_rec'), font=("Segoe UI", 12, "bold"),
                                  width=12, command=self._on_rec_button,
                                  bg="#cc3333", fg="#ffffff", relief="flat",
                                  activebackground="#ee4444")
         self.btn_rec.pack(side="left", padx=6)
 
-        self.btn_save = tk.Button(frm_btn, text="\u2b07  Сохранить", font=("Segoe UI", 12, "bold"),
+        self.btn_save = tk.Button(frm_btn, text=t('btn_save'), font=("Segoe UI", 12, "bold"),
                                   width=12, command=self._on_save_button,
                                   bg="#007acc", fg="#ffffff", relief="flat",
                                   activebackground="#0099ee")
@@ -543,7 +656,7 @@ class ScreenRecorderApp:
         frm_btn2 = tk.Frame(self.frm_top, bg="#2b2b2b")
         frm_btn2.pack(pady=(0, 4))
 
-        self.btn_update = tk.Button(frm_btn2, text="\u21bb  Обновить", font=("Segoe UI", 11),
+        self.btn_update = tk.Button(frm_btn2, text=t('btn_update'), font=("Segoe UI", 11),
                                    width=26, command=self._run_update,
                                    bg="#555555", fg="#ffffff", relief="flat",
                                    activebackground="#777777")
@@ -567,7 +680,7 @@ class ScreenRecorderApp:
                                   bg="#2b2b2b", highlightthickness=0)
         self.cv_audio.pack()
         self.lamp_audio = self.cv_audio.create_oval(2, 2, 16, 16, fill="#cc3333")
-        mic_label = "Звук" if self.mic_name else "Звук ✗"
+        mic_label = t('label_audio') if self.mic_name else t('label_audio_off')
         self.lbl_audio = tk.Label(frm_audio, text=mic_label,
                                  font=("Segoe UI", 8), fg="#999999" if self.mic_name else "#666666",
                                  bg="#2b2b2b")
@@ -579,7 +692,7 @@ class ScreenRecorderApp:
                                   bg="#2b2b2b", highlightthickness=0)
         self.cv_video.pack()
         self.lamp_video = self.cv_video.create_oval(2, 2, 16, 16, fill="#cc3333")
-        tk.Label(frm_video, text="Видео",
+        tk.Label(frm_video, text=t('label_video'),
                  font=("Segoe UI", 8), fg="#999999", bg="#2b2b2b").pack()
 
         self.lbl_timer = tk.Label(self.frm_detail, text="00:00:00",
@@ -595,7 +708,7 @@ class ScreenRecorderApp:
             relief="flat", cursor="hand2",
         )
         self._log_visible = False
-        self._btn_log = tk.Button(self.frm_detail, text="\U0001f4cb  Лог",
+        self._btn_log = tk.Button(self.frm_detail, text=t('btn_log'),
                                    command=self._toggle_log, **btn_log_style)
         self._btn_log.pack(pady=(4, 0))
 
@@ -636,19 +749,19 @@ class ScreenRecorderApp:
         if text:
             self.root.clipboard_clear()
             self.root.clipboard_append(text)
-            self._btn_log.config(text="\U0001f4cb  Скопировано!")
+            self._btn_log.config(text=t('btn_copied'))
             self.root.after(1500, lambda: self._btn_log.config(
-                text="\U0001f4cb  Скрыть лог" if self._log_visible else "\U0001f4cb  Лог"))
+                text=t('btn_hide_log') if self._log_visible else t('btn_log')))
 
     def _toggle_log(self):
         """Показать/скрыть лог."""
         if self._log_visible:
             self._log_frame.pack_forget()
-            self._btn_log.config(text="\U0001f4cb  Лог")
+            self._btn_log.config(text=t('btn_log'))
             self._log_visible = False
         else:
             self._log_frame.pack(fill="both", expand=True)
-            self._btn_log.config(text="\U0001f4cb  Скрыть лог")
+            self._btn_log.config(text=t('btn_hide_log'))
             self._log_visible = True
 
     # --- Сворачивание/разворачивание ---
@@ -685,14 +798,14 @@ class ScreenRecorderApp:
 
     def _check_deps(self):
         if not self.ffmpeg:
-            self.lbl_status.config(text="ffmpeg не найден", fg="#cc3333")
+            self.lbl_status.config(text=t('status_no_ffmpeg'), fg="#cc3333")
         elif self.mic_display:
             d = self.mic_display if len(self.mic_display) < 35 else self.mic_display[:32] + "..."
             tag = " [alt]" if self.mic_info and self.mic_info.get("alt") else ""
             fg = "#00cc66" if self.mic_tested else "#cc3333"
-            self.lbl_status.config(text=f"Готово | Микрофон: {d}{tag}", fg=fg)
+            self.lbl_status.config(text=t('status_ready_mic', d, tag), fg=fg)
         else:
-            self.lbl_status.config(text="Готово | Микрофон не найден", fg="#cc3333")
+            self.lbl_status.config(text=t('status_ready_no_mic'), fg="#cc3333")
 
     # --- Клик по статусу = копировать ---
 
@@ -702,7 +815,7 @@ class ScreenRecorderApp:
             self.root.clipboard_clear()
             self.root.clipboard_append(text)
             old_fg = self.lbl_status.cget("fg")
-            self.lbl_status.config(text="Скопировано!", fg="#cccc00")
+            self.lbl_status.config(text=t('status_copy'), fg="#cccc00")
             if self._status_copy_timer:
                 self.root.after_cancel(self._status_copy_timer)
             self._saved_status = (text, old_fg)
@@ -720,17 +833,17 @@ class ScreenRecorderApp:
     def _update_ui(self):
         audio_ok = self.mic_name is not None
         if self.state == "idle":
-            self.btn_rec.config(text="\u25cf  Запись", bg="#cc3333")
+            self.btn_rec.config(text=t('btn_rec'), bg="#cc3333")
             self.btn_save.config(state="normal")
             self.cv_video.itemconfig(self.lamp_video, fill="#cc3333")
             self.cv_audio.itemconfig(self.lamp_audio, fill="#00cc66" if audio_ok else "#666666")
         elif self.state == "recording":
-            self.btn_rec.config(text="\u25a0  Пауза", bg="#cc8800")
+            self.btn_rec.config(text=t('btn_pause'), bg="#cc8800")
             self.btn_save.config(state="disabled")
             self.cv_video.itemconfig(self.lamp_video, fill="#00cc66")
             self.cv_audio.itemconfig(self.lamp_audio, fill="#00cc66" if audio_ok else "#cc3333")
         elif self.state == "paused":
-            self.btn_rec.config(text="\u25b6  Продолжить", bg="#00cc66")
+            self.btn_rec.config(text=t('btn_resume'), bg="#00cc66")
             self.btn_save.config(state="normal")
             self.cv_video.itemconfig(self.lamp_video, fill="#cc8800")
             self.cv_audio.itemconfig(self.lamp_audio, fill="#cc8800" if audio_ok else "#666666")
@@ -739,7 +852,7 @@ class ScreenRecorderApp:
         try:
             import ctypes
             user32 = ctypes.windll.user32
-            hwnd = user32.FindWindowW(None, "Screen Recorder")
+            hwnd = user32.FindWindowW(None, t('title'))
             if hwnd:
                 user32.SetWindowDisplayAffinity(hwnd, 0x11)
         except Exception:
@@ -827,7 +940,7 @@ class ScreenRecorderApp:
 
     def _start_recording(self):
         if not self.ffmpeg:
-            self.lbl_status.config(text="ffmpeg не найден", fg="#cc3333")
+            self.lbl_status.config(text=t('status_no_ffmpeg'), fg="#cc3333")
             return
 
         ts = time.strftime("%Y-%m-%d_%H-%M-%S")
@@ -858,7 +971,7 @@ class ScreenRecorderApp:
         m = (self.accumulated % 3600) // 60
         s = self.accumulated % 60
         self.lbl_timer.config(text=f"{h:02d}:{m:02d}:{s:02d}", fg="#cc8800")
-        self.lbl_status.config(text="Пауза", fg="#cc8800")
+        self.lbl_status.config(text=t('status_paused'), fg="#cc8800")
 
     def _resume_recording(self):
         self._spawn_segment()
@@ -881,14 +994,14 @@ class ScreenRecorderApp:
             self._concat_segments()
 
         if self.filepath and os.path.isfile(self.filepath) and os.path.getsize(self.filepath) > 0:
-            self.lbl_status.config(text=f"Сохранено: {os.path.basename(self.filepath)}", fg="#00cc66")
+            self.lbl_status.config(text=t('status_saved', os.path.basename(self.filepath)), fg="#00cc66")
             h = self.accumulated // 3600
             m = (self.accumulated % 3600) // 60
             s = self.accumulated % 60
             self.lbl_timer.config(text=f"{h:02d}:{m:02d}:{s:02d}", fg="#00cc66")
             self._log(f"saved: {os.path.basename(self.filepath)}")
         else:
-            self.lbl_status.config(text="Файл не найден! Сначала запиши.", fg="#cc3333")
+            self.lbl_status.config(text=t('status_no_file'), fg="#cc3333")
 
         self.filepath = None
         self.segments = []
@@ -981,14 +1094,14 @@ class ScreenRecorderApp:
             self.root.after(1000, self._check_ffmpeg_started)
         except Exception as e:
             self._log(f"ERROR start: {e}")
-            self.lbl_status.config(text=f"Ошибка запуска: {e}", fg="#cc3333")
+            self.lbl_status.config(text=t('status_start_error', e), fg="#cc3333")
             return
 
         self.current_segment = seg_path
         self.seg_start = time.time()
         self.state = "recording"
         self._update_ui()
-        self.lbl_status.config(text="Запись...", fg="#ff6666")
+        self.lbl_status.config(text=t('status_recording'), fg="#ff6666")
         self._tick_timer()
 
     def _check_ffmpeg_started(self):
@@ -1006,11 +1119,11 @@ class ScreenRecorderApp:
                     raw = f.read()
                 err = raw.decode("utf-8", errors="replace").strip()[-300:]
             except Exception:
-                err = "(лог пуст)"
+                err = "(empty log)"
             self._log(f"ffmpeg crashed: {err[-80:]}")
             self.state = "idle"
             self._update_ui()
-            self.lbl_status.config(text=f"ffmpeg упал: {err[-80:]}", fg="#cc3333")
+            self.lbl_status.config(text=t('status_ffmpeg_crash', err[-80:]), fg="#cc3333")
 
     def _stop_ffmpeg(self):
         """Остановить процесс ffmpeg."""
@@ -1069,7 +1182,7 @@ class ScreenRecorderApp:
     # --- Обновление ---
 
     def _run_update(self):
-        self.lbl_status.config(text="Обновляю...", fg="#cccc00")
+        self.lbl_status.config(text=t('status_updating'), fg="#cccc00")
         self.root.update()
         try:
             upd = Updater(
@@ -1087,7 +1200,7 @@ class ScreenRecorderApp:
         except Exception as e:
             err = traceback.format_exc()
             self._log(f"update error: {err}")
-            self.lbl_status.config(text=f"Ошибка обновления: {e}", fg="#cc3333")
+            self.lbl_status.config(text=t('status_update_error', e), fg="#cc3333")
 
 
 # ============================================================
@@ -1102,7 +1215,7 @@ def main():
         root.mainloop()
     except Exception as e:
         err = traceback.format_exc()
-        _show_error(f"Ошибка при запуске:\n\n{err}")
+        _show_error(t('error_main', err))
 
 
 if __name__ == "__main__":
