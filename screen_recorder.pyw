@@ -84,8 +84,8 @@ T = {
         'demo_days_2': 'ДЕМО — 2 дня',
         'demo_days_1': 'ДЕМО — 1 день',
         'demo_expired': 'Демо кончилось',
-        'demo_buy': 'Купить →',
-        'demo_buy_link': 'https://evgeniymamonov.com',
+        'demo_buy': 'Получить за отзыв',
+        'demo_buy_link': 'https://evgeniymamonov.com/buy.html',
     },
     'en': {
         'title': 'Screen Recorder',
@@ -125,8 +125,8 @@ T = {
         'demo_days_2': 'DEMO — 2 days',
         'demo_days_1': 'DEMO — 1 day',
         'demo_expired': 'Demo expired',
-        'demo_buy': 'Buy →',
-        'demo_buy_link': 'https://evgeniymamonov.com',
+        'demo_buy': 'Get for a review',
+        'demo_buy_link': 'https://evgeniymamonov.com/buy.html',
     },
 }
 
@@ -765,11 +765,12 @@ class ScreenRecorderApp:
 
     # --- Проверка зависимостей ---
 
-    # --- Ссылка «Купить» ---
+    # --- Ссылка «Получить за отзыв» ---
 
     def _open_buy_link(self, event=None):
         import webbrowser
-        webbrowser.open(t('demo_buy_link'))
+        url = t('demo_buy_link') + f'?product={self.product_id}&instance={self.instance_uuid}'
+        webbrowser.open(url)
 
     def _check_deps(self):
         if self.demo_expired:
