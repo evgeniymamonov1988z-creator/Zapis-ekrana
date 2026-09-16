@@ -20,7 +20,7 @@ import traceback
 import tempfile
 import locale
 import datetime
-from demo_block import DemoBlock, _INSTANCE_UUID
+from demo_block import DemoBlock
 
 # --- Определяем язык интерфейса ---
 def _detect_lang():

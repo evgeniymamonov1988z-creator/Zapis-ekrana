@@ -3,11 +3,12 @@
 Подключается к любой программе на Python (tkinter).
 
 КАК РАБОТАЕТ:
-— Сервер при скачивании встраивает UUID прямо в файл программы
-— Программа читает свой UUID из себя самой
+— Сервер при скачивании дописывает UUID в конец .exe:
+  MAMONOV_UUID:xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+— Программа при запуске читает свой .exe, находит метку, достаёт UUID
+— Для .pyw (разработка) — UUID в переменной _INSTANCE_UUID
 — При запуске тихо звонит на сервер: кто запустился, какой статус
 — При активации отправляет product_id + UUID на сервер
-— Сервер решает: разблокировать или нет
 
 КАК ИСПОЛЬЗОВАТЬ:
 1. Скопируй demo_block.py в папку программы
@@ -17,10 +18,11 @@
 5. В _update_ui(): self.demo.lock_buttons(btn_rec, btn_save, ...)
 6. В обработчиках кнопок: if self.demo.expired: return
 
-НА СЕРВЕРЕ (при скачивании):
-— Скрипт скачивания заменяет _INSTANCE_UUID = "PLACEHOLDER"
-  на _INSTANCE_UUID = "реальный-uuid"
-— Каждый скачанный экземпляр получает свой уникальный номер
+НА СЕРВЕРЕ (при скачивании .exe):
+— PHP-скрипт читает .exe, дописывает в конец:
+  MAMONOV_UUID:xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+— Отдаёт пользователю .exe с уже встроенным UUID
+— .exe не ломается — дописанные данные не мешают
 
 СТАТИСТИКА (на сервере):
 — ping() при запуске считает уникальные установки
@@ -34,13 +36,18 @@
 """
 
 import os
+import sys
 import datetime
 
 # ============================================================
-# УНИКАЛЬНЫЙ НОМЕР ЭКЗЕМПЛЯРА
-# Сервер при скачивании заменяет PLACEHOLDER на реальный UUID
+# МАРКЕР UUID В .EXE
+# Сервер дописывает в конец .exe: MAMONOV_UUID:uuid-строка
+# Программа при запуске читает свой файл и ищет этот маркер
 # ============================================================
 
+_UUID_MARKER = b'MAMONOV_UUID:'
+
+# Для .pyw (разработка) — UUID прямо в коде
 _INSTANCE_UUID = "PLACEHOLDER"
 
 # ============================================================
@@ -76,6 +83,46 @@ _SERVER_URL = "https://evgeniymamonov.com/api/ping"
 
 
 # ============================================================
+# ЧТЕНИЕ UUID ИЗ .EXE
+# ============================================================
+
+def _read_uuid_from_exe():
+    """Прочитать UUID из конца своего .exe.
+    Сервер при скачивании дописал: MAMONOV_UUID:xxxx-xxxx-...
+    Если маркер найден — возвращаем UUID, иначе None."""
+    try:
+        exe_path = sys.executable
+        # При запуске .pyw через pythonw.exe — смотрим __file__
+        if not exe_path or exe_path.endswith(('python.exe', 'pythonw.exe', 'python3.exe', 'python3w.exe')):
+            # Не .exe — проверяем _INSTANCE_UUID для .pyw
+            if _INSTANCE_UUID != "PLACEHOLDER":
+                return _INSTANCE_UUID
+            return None
+
+        # Читаем последние 256 байт .exe (UUID занимает ~50 байт)
+        with open(exe_path, 'rb') as f:
+            f.seek(-256, 2)  # 2 = от конца файла
+            tail = f.read(256)
+
+        # Ищем маркер
+        idx = tail.find(_UUID_MARKER)
+        if idx == -1:
+            return None
+
+        # После маркера — UUID (36 символов)
+        start = idx + len(_UUID_MARKER)
+        uuid_bytes = tail[start:start + 36]
+        uuid_str = uuid_bytes.decode('ascii', errors='ignore').strip()
+
+        # Простая проверка формата UUID
+        if len(uuid_str) == 36 and uuid_str.count('-') == 4:
+            return uuid_str
+        return None
+    except Exception:
+        return None
+
+
+# ============================================================
 # КЛАСС DEMOBLOCK
 # ============================================================
 
@@ -98,8 +145,12 @@ class DemoBlock:
         self._license_file = os.path.join(_DEMO_DIR, f'.demo_licensed_{product_id}')
 
         # Уникальный номер экземпляра
-        if _INSTANCE_UUID != "PLACEHOLDER":
-            # Сервер вписал при скачивании
+        exe_uuid = _read_uuid_from_exe()
+        if exe_uuid:
+            # Сервер вписал при скачивании (.exe)
+            self.instance_uuid = exe_uuid
+        elif _INSTANCE_UUID != "PLACEHOLDER":
+            # .pyw — UUID в коде
             self.instance_uuid = _INSTANCE_UUID
         else:
             # Разработка — генерируем и сохраняем в APPDATA
