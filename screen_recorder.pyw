@@ -47,7 +47,7 @@ LANG = _detect_lang()
 # --- Словарь строк ---
 T = {
     'ru': {
-        'title': 'Screen Recorder',
+        'title': 'Запись экрана',
         'btn_rec': '\u25cf  Запись',
         'btn_pause': '\u25a0  Пауза',
         'btn_resume': '\u25b6  Продолжить',
@@ -71,7 +71,7 @@ T = {
         'log_mic': 'микрофон: {}',
         'log_mic_not_found': 'микрофон не найден',
         # Окно ошибки
-        'error_title': 'Screen Recorder — Ошибка',
+        'error_title': 'Запись экрана — Ошибка',
         'error_label': 'Ошибка запуска:',
         'error_copy': '\U0001f4cb Копировать',
         'error_copied': 'Скопировано!',
@@ -80,7 +80,7 @@ T = {
         'error_tkinter': 'Не удалось загрузить tkinter:\n{}\n\nУстановите Python с python.org (не Microsoft Store)',
         'error_copy_btn': '\U0001f4cb Копировать',
         # Демо
-        'demo_title': 'Screen Recorder — ДЕМО',
+        'demo_title': 'Запись экрана — ДЕМО',
         'demo_days_3': 'ДЕМО — 3 дня',
         'demo_days_2': 'ДЕМО — 2 дня',
         'demo_days_1': 'ДЕМО — 1 день',
