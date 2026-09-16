@@ -19,6 +19,9 @@ import shutil
 import traceback
 import tempfile
 import locale
+import threading
+import urllib.request
+import zipfile
 
 # --- Определяем язык интерфейса ---
 def _detect_lang():
@@ -77,6 +80,13 @@ T = {
         'error_main': 'Ошибка при запуска:\n\n{}',
         'error_tkinter': 'Не удалось загрузить tkinter:\n{}\n\nУстановите Python с python.org (не Microsoft Store)',
         'error_copy_btn': '\U0001f4cb Копировать',
+        # Скачивание ffmpeg
+        'dl_checking': 'Проверяю ffmpeg...',
+        'dl_downloading': 'Скачиваю ffmpeg... {}%',
+        'dl_extracting': 'Распаковываю ffmpeg...',
+        'dl_done': 'Готово | Микрофон: {}{}',
+        'dl_error': 'Ошибка скачивания ffmpeg',
+        'dl_no_internet': 'Нет интернета для скачивания ffmpeg',
     },
     'en': {
         'title': 'Screen Recorder',
@@ -110,6 +120,13 @@ T = {
         'error_main': 'Startup error:\n\n{}',
         'error_tkinter': 'Failed to load tkinter:\n{}\n\nInstall Python from python.org (not Microsoft Store)',
         'error_copy_btn': '\U0001f4cb Copy',
+        # ffmpeg download
+        'dl_checking': 'Checking ffmpeg...',
+        'dl_downloading': 'Downloading ffmpeg... {}%',
+        'dl_extracting': 'Extracting ffmpeg...',
+        'dl_done': 'Ready | Mic: {}{}',
+        'dl_error': 'ffmpeg download error',
+        'dl_no_internet': 'No internet to download ffmpeg',
     },
 }
 
@@ -438,6 +455,180 @@ def pick_mic(ffmpeg_path):
 
 
 # ============================================================
+# АВТО-СКАЧИВАНИЕ FFMPEG при первом запуске
+# BtbN LGPL shared (73 МБ вместо 106 МБ), извлекаем ТОЛЬКО ffmpeg.exe
+# ============================================================
+_FFMPEG_URL = 'https://github.com/BtbN/FFmpeg-Builds/releases/latest/download/ffmpeg-master-latest-win64-lgpl-shared.zip'
+
+
+def _ensure_ffmpeg(app):
+    """Если ffmpeg не найден — скачиваем в фоновом потоке."""
+    bin_dir = os.path.join(APP_DIR, "bin")
+    ok_marker = os.path.join(bin_dir, ".ffmpeg_installed")
+    err_marker = os.path.join(bin_dir, ".ffmpeg_error")
+
+    # Уже пробовали — не повторяем
+    if os.path.isfile(ok_marker) or os.path.isfile(err_marker):
+        return
+
+    # ffmpeg уже есть
+    if find_ffmpeg():
+        return
+
+    def _status(text):
+        try:
+            app.lbl_status.config(text=text)
+        except Exception:
+            pass
+
+    def _log(msg):
+        try:
+            app._log(msg)
+        except Exception:
+            pass
+
+    def _do_download():
+        try:
+            _status(t('dl_checking'))
+            _log('auto-downloading ffmpeg...')
+
+            os.makedirs(bin_dir, exist_ok=True)
+            temp_dir = tempfile.mkdtemp(prefix="ffmpeg_dl_")
+            zip_path = os.path.join(temp_dir, "ffmpeg.zip")
+
+            # --- Скачиваем ---
+            try:
+                req = urllib.request.Request(_FFMPEG_URL, headers={'User-Agent': 'Mozilla/5.0'})
+                with urllib.request.urlopen(req, timeout=60) as resp:
+                    total = int(resp.headers.get('Content-Length', 0))
+                    downloaded = 0
+                    last_pct = -1
+                    with open(zip_path, 'wb') as f:
+                        while True:
+                            chunk = resp.read(65536)
+                            if not chunk:
+                                break
+                            f.write(chunk)
+                            downloaded += len(chunk)
+                            if total > 0:
+                                pct = int(downloaded * 100 / total)
+                                if pct != last_pct and pct % 5 == 0:
+                                    _status(t('dl_downloading', pct))
+                                    last_pct = pct
+            except Exception as e:
+                _log(f'download error: {e}')
+                _status(t('dl_no_internet'))
+                with open(err_marker, 'w') as f:
+                    f.write(str(e))
+                try:
+                    shutil.rmtree(temp_dir, ignore_errors=True)
+                except Exception:
+                    pass
+                return
+
+            # --- Извлекаем ТОЛЬКО ffmpeg.exe ---
+            _status(t('dl_extracting'))
+            _log('extracting ffmpeg.exe from zip...')
+
+            extracted = None
+            try:
+                with zipfile.ZipFile(zip_path, 'r') as zf:
+                    # Сначала ищем bin/ffmpeg.exe
+                    for info in zf.infolist():
+                        name_lower = info.filename.lower().replace('\\', '/')
+                        if name_lower.endswith('ffmpeg.exe') and 'bin/' in name_lower:
+                            with zf.open(info) as src, \
+                                 open(os.path.join(temp_dir, 'ffmpeg.exe'), 'wb') as dst:
+                                while True:
+                                    chunk = src.read(65536)
+                                    if not chunk:
+                                        break
+                                    dst.write(chunk)
+                            extracted = os.path.join(temp_dir, 'ffmpeg.exe')
+                            break
+                    # Fallback: любой ffmpeg.exe
+                    if not extracted:
+                        for info in zf.infolist():
+                            if info.filename.lower().endswith('ffmpeg.exe'):
+                                with zf.open(info) as src, \
+                                     open(os.path.join(temp_dir, 'ffmpeg.exe'), 'wb') as dst:
+                                    while True:
+                                        chunk = src.read(65536)
+                                        if not chunk:
+                                            break
+                                        dst.write(chunk)
+                                extracted = os.path.join(temp_dir, 'ffmpeg.exe')
+                                break
+            except Exception as e:
+                _log(f'extract error: {e}')
+                _status(t('dl_error'))
+                with open(err_marker, 'w') as f:
+                    f.write(str(e))
+                try:
+                    shutil.rmtree(temp_dir, ignore_errors=True)
+                except Exception:
+                    pass
+                return
+
+            if not extracted or not os.path.isfile(extracted):
+                _log('ffmpeg.exe not found in archive')
+                _status(t('dl_error'))
+                with open(err_marker, 'w') as f:
+                    f.write('ffmpeg.exe not found in archive')
+                try:
+                    shutil.rmtree(temp_dir, ignore_errors=True)
+                except Exception:
+                    pass
+                return
+
+            # --- Копируем в bin/ ---
+            dest = os.path.join(bin_dir, 'ffmpeg.exe')
+            shutil.copy2(extracted, dest)
+            _log(f'ffmpeg installed: {dest}')
+
+            # Маркер успеха
+            with open(ok_marker, 'w') as f:
+                f.write('ok')
+
+            # Очистка
+            try:
+                shutil.rmtree(temp_dir, ignore_errors=True)
+            except Exception:
+                pass
+
+            # --- Обновляем UI ---
+            app.ffmpeg = find_ffmpeg()
+            app.mic_info = pick_mic(app.ffmpeg)
+            if app.mic_info:
+                app.mic_display = app.mic_info.get("display")
+                app.mic_tested = app.mic_info.get("tested", False)
+                if app.mic_info.get("alt"):
+                    app.mic_name = app.mic_info["alt"]
+                    app.mic_needs_bat = False
+                elif app.mic_info.get("display"):
+                    app.mic_name = app.mic_info["display"]
+                    app.mic_needs_bat = True
+            _log(f'ffmpeg: {app.ffmpeg or "NOT FOUND"}')
+            if app.mic_display:
+                _log(t('log_mic', app.mic_display))
+            else:
+                _log(t('log_mic_not_found'))
+            app._check_deps()
+
+        except Exception as e:
+            _log(f'ensure_ffmpeg unexpected error: {e}')
+            try:
+                _status(t('dl_error'))
+                with open(err_marker, 'w') as f:
+                    f.write(str(e))
+            except Exception:
+                pass
+
+    # Запускаем в фоне
+    threading.Thread(target=_do_download, daemon=True).start()
+
+
+# ============================================================
 # ГЛАВНОЕ ОКНО
 # ============================================================
 class ScreenRecorderApp:
@@ -485,6 +676,10 @@ class ScreenRecorderApp:
         self._build_ui()
         self._check_deps()
         self._update_ui()
+
+        # Если ffmpeg нет — скачиваем в фоне
+        if not self.ffmpeg:
+            _ensure_ffmpeg(self)
 
         self.root.after(200, self._hide_from_capture)
         self._hover_check_id = None

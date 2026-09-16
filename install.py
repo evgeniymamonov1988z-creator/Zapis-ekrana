@@ -98,11 +98,11 @@ def install_ffmpeg():
     ffmpeg_bin = os.path.join(ffmpeg_dir, 'bin')
 
     # Скачать
-    url = 'https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip'
+    url = 'https://github.com/BtbN/FFmpeg-Builds/releases/latest/download/ffmpeg-master-latest-win64-lgpl-shared.zip'
     temp_zip = os.path.join(os.environ.get('TEMP', 'C:\\Temp'), 'ffmpeg_download.zip')
     temp_extract = os.path.join(os.environ.get('TEMP', 'C:\\Temp'), 'ffmpeg_extract')
 
-    print('  Скачиваю ffmpeg (≈80 МБ)...')
+    print('  Скачиваю ffmpeg (≈73 МБ, GitHub CDN)...')
     try:
         _download_with_progress(url, temp_zip)
     except Exception as e:
@@ -110,48 +110,54 @@ def install_ffmpeg():
         print('  Скачайте вручную с https://www.gyan.dev/ffmpeg/builds/')
         return False
 
-    # Распаковать
-    print('  Распаковываю...')
+    # Извлечь ТОЛЬКО bin/ffmpeg.exe (не весь архив)
+    print('  Извлекаю ffmpeg.exe...')
     os.makedirs(temp_extract, exist_ok=True)
+    extracted_exe = None
     try:
         with zipfile.ZipFile(temp_zip, 'r') as zf:
-            zf.extractall(temp_extract)
+            for info in zf.infolist():
+                name_lower = info.filename.lower().replace('\\', '/')
+                if name_lower.endswith('ffmpeg.exe') and 'bin/' in name_lower:
+                    with zf.open(info) as src, open(os.path.join(temp_extract, 'ffmpeg.exe'), 'wb') as dst:
+                        while True:
+                            chunk = src.read(65536)
+                            if not chunk:
+                                break
+                            dst.write(chunk)
+                    extracted_exe = os.path.join(temp_extract, 'ffmpeg.exe')
+                    break
+            # Fallback: любой ffmpeg.exe в архиве
+            if not extracted_exe:
+                for info in zf.infolist():
+                    if info.filename.lower().endswith('ffmpeg.exe'):
+                        with zf.open(info) as src, open(os.path.join(temp_extract, 'ffmpeg.exe'), 'wb') as dst:
+                            while True:
+                                chunk = src.read(65536)
+                                if not chunk:
+                                    break
+                                dst.write(chunk)
+                        extracted_exe = os.path.join(temp_extract, 'ffmpeg.exe')
+                        break
     except Exception as e:
         print(f'  ✗ Ошибка распаковки: {e}')
         return False
 
-    # Найти распакованную папку
-    extracted = None
-    for item in os.listdir(temp_extract):
-        full = os.path.join(temp_extract, item)
-        if os.path.isdir(full) and 'ffmpeg' in item.lower():
-            extracted = full
-            break
-
-    if not extracted:
-        # Попробовать глубже
-        for root, dirs, _ in os.walk(temp_extract):
-            for d in dirs:
-                if 'bin' in d:
-                    extracted = root
-                    break
-
-    if not extracted:
-        print('  ✗ Не найдена распакованная папка ffmpeg')
+    if not extracted_exe or not os.path.isfile(extracted_exe):
+        print('  ✗ ffmpeg.exe не найден в архиве')
         return False
 
-    # Переместить в Program Files
-    os.makedirs(prog_dir, exist_ok=True)
-    if os.path.exists(ffmpeg_dir):
-        shutil.rmtree(ffmpeg_dir)
-    shutil.move(extracted, ffmpeg_dir)
+    # Переместить в Program Files/MAMONOV/ffmpeg/bin/
+    os.makedirs(ffmpeg_bin, exist_ok=True)
+    dest = os.path.join(ffmpeg_bin, 'ffmpeg.exe')
+    shutil.copy2(extracted_exe, dest)
+    print(f'  ✓ ffmpeg.exe установлен: {dest}')
 
     # Добавить в PATH
     if _add_to_path_win(ffmpeg_bin):
-        print(f'  ✓ ffmpeg установлен: {ffmpeg_bin}')
+        print(f'  ✓ Добавлено в PATH: {ffmpeg_bin}')
     else:
-        print(f'  ✓ ffmpeg установлен, но нужно добавить в PATH вручную:')
-        print(f'    {ffmpeg_bin}')
+        print(f'  ⚠ Добавьте в PATH вручную: {ffmpeg_bin}')
 
     # Очистка
     try:
