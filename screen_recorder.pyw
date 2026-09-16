@@ -20,7 +20,7 @@ import traceback
 import tempfile
 import locale
 import datetime
-from demo_block import DemoBlock
+# DemoBlock встроен прямо в этот файл (см. ниже)
 
 # --- Определяем язык интерфейса ---
 def _detect_lang():
@@ -238,8 +238,230 @@ except ImportError as e:
 
 
 # ============================================================
-# ДЕМО-БЛОК — подключён через demo_block.py
+# ДЕМО-БЛОК v2.1 — встроен прямо в .exe
+# UUID читается из конца .exe по маркеру MAMONOV_UUID:
 # ============================================================
+
+_UUID_MARKER = b'MAMONOV_UUID:'
+_INSTANCE_UUID = "PLACEHOLDER"
+_DEMO_DIR = os.path.join(os.environ.get('APPDATA', os.path.expanduser('~')), 'MAMONOV')
+_SERVER_URL = "https://evgeniymamonov.com/api/ping"
+
+
+def _read_uuid_from_exe():
+    """Прочитать UUID из конца своего .exe.
+    Сервер при скачивании дописал: MAMONOV_UUID:xxxx-xxxx-...
+    Если маркер найден — возвращаем UUID, иначе None."""
+    try:
+        exe_path = sys.executable
+        if not exe_path or exe_path.endswith(('python.exe', 'pythonw.exe', 'python3.exe', 'python3w.exe')):
+            if _INSTANCE_UUID != "PLACEHOLDER":
+                return _INSTANCE_UUID
+            return None
+
+        with open(exe_path, 'rb') as f:
+            f.seek(-256, 2)
+            tail = f.read(256)
+
+        idx = tail.find(_UUID_MARKER)
+        if idx == -1:
+            return None
+
+        start = idx + len(_UUID_MARKER)
+        uuid_bytes = tail[start:start + 36]
+        uuid_str = uuid_bytes.decode('ascii', errors='ignore').strip()
+
+        if len(uuid_str) == 36 and uuid_str.count('-') == 4:
+            return uuid_str
+        return None
+    except Exception:
+        return None
+
+
+class DemoBlock:
+    """Универсальный демо-блок.
+
+    product_id  — номер продукта (1=MWBL, 2=MWBL Free, 3=Screen Recorder, ...)
+    demo_days   — сколько дней длится демо (3 или 7)
+    t           — функция перевода
+    """
+
+    def __init__(self, product_id, demo_days=3, t=None):
+        self.product_id = product_id
+        self.demo_days = demo_days
+        self._t = t
+
+        self._demo_file = os.path.join(_DEMO_DIR, f'.demo_date_{product_id}')
+        self._license_file = os.path.join(_DEMO_DIR, f'.demo_licensed_{product_id}')
+
+        exe_uuid = _read_uuid_from_exe()
+        if exe_uuid:
+            self.instance_uuid = exe_uuid
+        elif _INSTANCE_UUID != "PLACEHOLDER":
+            self.instance_uuid = _INSTANCE_UUID
+        else:
+            self.instance_uuid = self._generate_fallback_uuid()
+
+        self.status, self.days_left = self._check()
+        self.expired = (self.status == 'expired')
+        self.licensed = (self.status == 'licensed')
+
+        self.ping()
+
+    def _generate_fallback_uuid(self):
+        fallback_file = os.path.join(_DEMO_DIR, f'.dev_uuid_{self.product_id}')
+        try:
+            os.makedirs(_DEMO_DIR, exist_ok=True)
+            if os.path.isfile(fallback_file):
+                with open(fallback_file, 'r') as f:
+                    uid = f.read().strip()
+                if uid:
+                    return uid
+            import uuid
+            uid = str(uuid.uuid4())
+            with open(fallback_file, 'w') as f:
+                f.write(uid)
+            return uid
+        except Exception:
+            import uuid
+            return str(uuid.uuid4())
+
+    def _check(self):
+        if os.path.isfile(self._license_file):
+            try:
+                with open(self._license_file, 'r') as f:
+                    data = f.read().strip()
+                if data == 'ok':
+                    return ('licensed', 0)
+            except Exception:
+                pass
+
+        try:
+            os.makedirs(_DEMO_DIR, exist_ok=True)
+            if os.path.isfile(self._demo_file):
+                with open(self._demo_file, 'r') as f:
+                    first_run = f.read().strip()
+                first_date = datetime.datetime.strptime(first_run, '%Y-%m-%d').date()
+            else:
+                today = datetime.date.today()
+                with open(self._demo_file, 'w') as f:
+                    f.write(today.strftime('%Y-%m-%d'))
+                first_date = today
+
+            days_passed = (datetime.date.today() - first_date).days
+            days_left = self.demo_days - days_passed
+
+            if days_left <= 0:
+                return ('expired', 0)
+            return ('ok', days_left)
+        except Exception:
+            return ('ok', self.demo_days)
+
+    def mark_licensed(self):
+        try:
+            os.makedirs(_DEMO_DIR, exist_ok=True)
+            with open(self._license_file, 'w') as f:
+                f.write('ok')
+            self.status = 'licensed'
+            self.licensed = True
+            self.expired = False
+        except Exception:
+            pass
+
+    def ping(self):
+        try:
+            import urllib.request
+            import urllib.parse
+            params = urllib.parse.urlencode({
+                'product': self.product_id,
+                'instance': self.instance_uuid,
+                'status': self.status,
+                'days': self.days_left,
+            })
+            url = f'{_SERVER_URL}?{params}'
+            req = urllib.request.Request(url, method='GET')
+            req.add_header('User-Agent', 'MAMONOV-DemoBlock/2.1')
+            urllib.request.urlopen(req, timeout=3)
+        except Exception:
+            pass
+
+    def check_server_license(self, callback=None):
+        try:
+            import urllib.request
+            import urllib.parse
+            import json
+            params = urllib.parse.urlencode({
+                'product': self.product_id,
+                'instance': self.instance_uuid,
+            })
+            url = f'https://evgeniymamonov.com/api/check?{params}'
+            req = urllib.request.Request(url, method='GET')
+            req.add_header('User-Agent', 'MAMONOV-DemoBlock/2.1')
+            resp = urllib.request.urlopen(req, timeout=5)
+            data = json.loads(resp.read().decode('utf-8'))
+            if data.get('licensed'):
+                self.mark_licensed()
+                if callback:
+                    callback()
+        except Exception:
+            pass
+
+    def bar_text(self):
+        t = self._t or (lambda k, *a: k)
+        if self.licensed:
+            return ''
+        if self.days_left >= 3:
+            return t('demo_days_3')
+        elif self.days_left == 2:
+            return t('demo_days_2')
+        elif self.days_left == 1:
+            return t('demo_days_1')
+        else:
+            return t('demo_expired')
+
+    def buy_url(self):
+        t = self._t or (lambda k, *a: k)
+        base = t('demo_buy_link')
+        return f'{base}?product={self.product_id}&instance={self.instance_uuid}'
+
+    def open_buy_link(self, event=None):
+        import webbrowser
+        webbrowser.open(self.buy_url())
+
+    def build_bar(self, parent, t=None):
+        if t:
+            self._t = t
+        if self.licensed:
+            return (None, None)
+
+        frm = tk.Frame(parent, bg="#2b2b2b")
+        frm.pack(fill="x", padx=10, pady=(5, 0))
+
+        lbl_demo = tk.Label(frm, text=self.bar_text(),
+                            font=("Segoe UI", 9, "bold"),
+                            fg="#DAA520", bg="#2b2b2b")
+        lbl_demo.pack(side="left")
+
+        lbl_buy = None
+        if self.expired:
+            t_fn = self._t or (lambda k, *a: k)
+            lbl_buy = tk.Label(frm, text=t_fn('demo_buy'),
+                               font=("Segoe UI", 9, "bold"),
+                               fg="#0099ee", bg="#2b2b2b", cursor="hand2")
+            lbl_buy.pack(side="left", padx=(10, 0))
+            lbl_buy.bind("<Button-1>", self.open_buy_link)
+
+        return (lbl_demo, lbl_buy)
+
+    def lock_buttons(self, *buttons):
+        if self.expired:
+            for btn in buttons:
+                btn.config(state="disabled")
+            return True
+        else:
+            for btn in buttons:
+                btn.config(state="normal")
+            return False
 
 
 # ============================================================
