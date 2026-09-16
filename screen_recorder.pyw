@@ -241,8 +241,32 @@ except ImportError as e:
 # Дата записывается в %APPDATA%\MAMONOV\ при первом запуске
 # ============================================================
 _DEMO_DAYS = 3
+_PRODUCT_ID = 3  # Screen Recorder
 _DEMO_DIR = os.path.join(os.environ.get('APPDATA', os.path.expanduser('~')), 'MAMONOV')
 _DEMO_FILE = os.path.join(_DEMO_DIR, '.sr_demo')
+_INSTANCE_FILE = os.path.join(_DEMO_DIR, '.sr_instance')
+
+
+def _get_instance():
+    """Уникальный номер экземпляра. Генерируется один раз при первом запуске,
+    сохраняется в %APPDATA%\\MAMONOV\\.sr_instance. При активации отправляется
+    на сервер вместе с product_id — сервер видит, кто стучится."""
+    try:
+        os.makedirs(_DEMO_DIR, exist_ok=True)
+        if os.path.isfile(_INSTANCE_FILE):
+            with open(_INSTANCE_FILE, 'r') as f:
+                uid = f.read().strip()
+            if uid:
+                return uid
+        # Первый запуск — генерируем UUID
+        import uuid
+        uid = str(uuid.uuid4())
+        with open(_INSTANCE_FILE, 'w') as f:
+            f.write(uid)
+        return uid
+    except Exception:
+        import uuid
+        return str(uuid.uuid4())
 
 
 def _demo_check():
@@ -514,6 +538,8 @@ class ScreenRecorderApp:
         # Демо-проверка
         self.demo_status, self.demo_days = _demo_check()
         self.demo_expired = (self.demo_status == 'expired')
+        self.product_id = _PRODUCT_ID
+        self.instance_uuid = _get_instance()
         if self.demo_expired:
             self.root.title(t('demo_title'))
 
