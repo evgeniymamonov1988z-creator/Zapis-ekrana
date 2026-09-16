@@ -20,6 +20,7 @@ import traceback
 import tempfile
 import locale
 import datetime
+from demo_block import DemoBlock, _INSTANCE_UUID
 
 # --- Определяем язык интерфейса ---
 def _detect_lang():
@@ -237,69 +238,8 @@ except ImportError as e:
 
 
 # ============================================================
-# ДЕМО — 3 дня, потом блокировка
-# Дата записывается в %APPDATA%\MAMONOV\ при первом запуске
+# ДЕМО-БЛОК — подключён через demo_block.py
 # ============================================================
-_DEMO_DAYS = 3
-_PRODUCT_ID = 3  # Screen Recorder
-_DEMO_DIR = os.path.join(os.environ.get('APPDATA', os.path.expanduser('~')), 'MAMONOV')
-_DEMO_FILE = os.path.join(_DEMO_DIR, '.sr_demo')
-_INSTANCE_FILE = os.path.join(_DEMO_DIR, '.sr_instance')
-
-
-def _get_instance():
-    """Уникальный номер экземпляра. Генерируется один раз при первом запуске,
-    сохраняется в %APPDATA%\\MAMONOV\\.sr_instance. При активации отправляется
-    на сервер вместе с product_id — сервер видит, кто стучится."""
-    try:
-        os.makedirs(_DEMO_DIR, exist_ok=True)
-        if os.path.isfile(_INSTANCE_FILE):
-            with open(_INSTANCE_FILE, 'r') as f:
-                uid = f.read().strip()
-            if uid:
-                return uid
-        # Первый запуск — генерируем UUID
-        import uuid
-        uid = str(uuid.uuid4())
-        with open(_INSTANCE_FILE, 'w') as f:
-            f.write(uid)
-        return uid
-    except Exception:
-        import uuid
-        return str(uuid.uuid4())
-
-
-def _demo_check():
-    """Проверить демо-статус. Возвращает:
-        ('ok', days_left)  — демо действует, дней осталось
-        ('expired', 0)     — демо кончилось
-    """
-    try:
-        os.makedirs(_DEMO_DIR, exist_ok=True)
-
-        # Есть файл с датой?
-        if os.path.isfile(_DEMO_FILE):
-            with open(_DEMO_FILE, 'r') as f:
-                first_run = f.read().strip()
-            first_date = datetime.datetime.strptime(first_run, '%Y-%m-%d').date()
-        else:
-            # Первый запуск — записываем сегодняшнюю дату
-            today = datetime.date.today()
-            with open(_DEMO_FILE, 'w') as f:
-                f.write(today.strftime('%Y-%m-%d'))
-            first_date = today
-
-        # Сколько дней прошло
-        days_passed = (datetime.date.today() - first_date).days
-        days_left = _DEMO_DAYS - days_passed
-
-        if days_left <= 0:
-            return ('expired', 0)
-        return ('ok', days_left)
-
-    except Exception:
-        # Ошибка чтения — даём работать (на всякий случай)
-        return ('ok', _DEMO_DAYS)
 
 
 # ============================================================
@@ -535,12 +475,9 @@ class ScreenRecorderApp:
         self.root.configure(bg="#2b2b2b")
         self.root.attributes("-topmost", True)
 
-        # Демо-проверка
-        self.demo_status, self.demo_days = _demo_check()
-        self.demo_expired = (self.demo_status == 'expired')
-        self.product_id = _PRODUCT_ID
-        self.instance_uuid = _get_instance()
-        if self.demo_expired:
+        # Демо-блок
+        self.demo = DemoBlock(product_id=3, demo_days=3, t=t)
+        if self.demo.expired:
             self.root.title(t('demo_title'))
 
         self.ffmpeg = find_ffmpeg()
@@ -609,27 +546,8 @@ class ScreenRecorderApp:
         self.btn_save.pack(side="left", padx=6)
 
         # Демо-строка (золотая)
-        if self.demo_expired:
-            demo_text = t('demo_expired')
-        else:
-            days_key = {3: 'demo_days_3', 2: 'demo_days_2', 1: 'demo_days_1'}.get(self.demo_days, f'demo_days_{self.demo_days}')
-            demo_text = t(days_key) if days_key in T.get(LANG, T['en']) else f'ДЕМО — {self.demo_days} дней'
-
-        frm_demo = tk.Frame(self.frm_top, bg="#2b2b2b")
-        frm_demo.pack(fill="x", pady=(0, 2))
-
-        self.lbl_demo = tk.Label(frm_demo, text=demo_text,
-                                 font=("Segoe UI", 9, "bold"),
-                                 fg="#DAA520", bg="#2b2b2b")
-        self.lbl_demo.pack()
-
-        if self.demo_expired:
-            # Ссылка «Купить →»
-            self.lbl_buy = tk.Label(frm_demo, text=t('demo_buy'),
-                                    font=("Segoe UI", 9, "bold"),
-                                    fg="#0099ee", bg="#2b2b2b", cursor="hand2")
-            self.lbl_buy.pack(pady=(0, 4))
-            self.lbl_buy.bind("<Button-1>", self._open_buy_link)
+        # Демо-строка (через DemoBlock)
+        self.demo.build_bar(self.frm_top, t)
 
         self.frm_detail = tk.Frame(self.root, bg="#2b2b2b")
         self.frm_detail.pack(fill="x")
@@ -767,13 +685,8 @@ class ScreenRecorderApp:
 
     # --- Ссылка «Получить за отзыв» ---
 
-    def _open_buy_link(self, event=None):
-        import webbrowser
-        url = t('demo_buy_link') + f'?product={self.product_id}&instance={self.instance_uuid}'
-        webbrowser.open(url)
-
     def _check_deps(self):
-        if self.demo_expired:
+        if self.demo.expired:
             self.lbl_status.config(text=t('demo_expired'), fg="#cc3333")
         elif not self.ffmpeg:
             self.lbl_status.config(text=t('status_no_ffmpeg'), fg="#cc3333")
@@ -810,7 +723,7 @@ class ScreenRecorderApp:
 
     def _update_ui(self):
         audio_ok = self.mic_name is not None
-        if self.demo_expired:
+        if self.demo.expired:
             self.btn_rec.config(state="disabled")
             self.btn_save.config(state="disabled")
             return
@@ -913,7 +826,7 @@ class ScreenRecorderApp:
     # ============================================================
 
     def _on_rec_button(self):
-        if self.demo_expired:
+        if self.demo.expired:
             return
         if self.state == "idle":
             self._start_recording()
@@ -965,7 +878,7 @@ class ScreenRecorderApp:
     # ============================================================
 
     def _on_save_button(self):
-        if self.demo_expired:
+        if self.demo.expired:
             return
         if self.state == "recording":
             self._stop_ffmpeg()
