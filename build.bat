@@ -9,6 +9,7 @@ echo.
 :: Удаляем старую сборку
 if exist dist rmdir /s /q dist
 if exist build rmdir /s /q build
+if exist "Запись экрана.spec" del "Запись экрана.spec"
 if exist ScreenRecorder.spec del ScreenRecorder.spec
 
 :: ffmpeg внутрь .exe (если лежит в bin\)
@@ -29,7 +30,7 @@ if exist mamonov_icon.ico (
     echo [!] Иконка mamonov_icon.ico не найдена — Проводник покажет стандартную
 )
 
-pyinstaller --noconfirm --onefile --windowed --name ScreenRecorder %ICON% --add-data "updater.pyw;." --add-data "mamonov_icon.ico;." %EXTRA% screen_recorder.pyw
+pyinstaller --noconfirm --onefile --windowed --name "Запись экрана" %ICON% --add-data "updater.pyw;." --add-data "mamonov_icon.ico;." %EXTRA% screen_recorder.pyw
 
 if errorlevel 1 (
     echo.
@@ -49,6 +50,6 @@ if exist mamonov_icon.ico (
 
 echo.
 echo === Готово! ===
-echo Файл: dist\ScreenRecorder.exe
+echo Файл: dist\Запись экрана.exe
 echo.
 pause

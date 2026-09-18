@@ -2,7 +2,7 @@
 chcp 65001 >nul
 set APP_DIR=%~dp0
 
-echo === Надеваем иконку MAMONOV на ScreenRecorder.exe ===
+echo === Надеваем иконку MAMONOV на Запись экрана.exe ===
 echo.
 
 :: rcedit — маленькая утилита для встраивания иконок в .exe
@@ -22,7 +22,7 @@ if not exist "%RCEDIT%" (
     echo [OK] rcedit скачан
 )
 
-set EXE=%APP_DIR%dist\ScreenRecorder.exe
+set EXE=%APP_DIR%dist\Запись экрана.exe
 set ICO=%APP_DIR%mamonov_icon.ico
 
 if not exist "%EXE%" (
@@ -38,7 +38,7 @@ if not exist "%ICO%" (
     goto :eof
 )
 
-echo [OK] Надеваем иконку на ScreenRecorder.exe...
+echo [OK] Надеваем иконку на Запись экрана.exe...
 "%RCEDIT%" "%EXE%" --set-icon "%ICO%"
 
 if errorlevel 1 (
@@ -48,6 +48,6 @@ if errorlevel 1 (
 )
 
 echo.
-echo === Готово! Иконка MAMONOV на ScreenRecorder.exe ===
+echo === Готово! Иконка MAMONOV на Запись экрана.exe ===
 echo.
 pause
