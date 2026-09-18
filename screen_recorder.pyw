@@ -168,9 +168,17 @@ if _hwnd:
     ctypes.windll.user32.SetForegroundWindow(_hwnd)
     sys.exit(0)
 
+# --- Скрытая папка данных (логи и служебные файлы) — НЕ на рабочем столе ---
+_DATA_BASE = os.environ.get('LOCALAPPDATA') or os.environ.get('APPDATA') or os.path.expanduser('~')
+DATA_DIR = os.path.join(_DATA_BASE, 'MAMONOV')
+try:
+    os.makedirs(DATA_DIR, exist_ok=True)
+except Exception:
+    DATA_DIR = os.path.dirname(os.path.abspath(
+        sys.executable if getattr(sys, 'frozen', False) else __file__))
+
 # 2. Проверить PID-файл (на случай если окно ещё не создалось)
-_PID_FILE = os.path.join(os.path.dirname(os.path.abspath(
-    sys.executable if getattr(sys, 'frozen', False) else __file__)), '.screen_recorder.pid')
+_PID_FILE = os.path.join(DATA_DIR, '.screen_recorder.pid')
 if os.path.isfile(_PID_FILE):
     try:
         with open(_PID_FILE, 'r') as f:
@@ -201,7 +209,7 @@ if os.path.isdir(LIB_DIR):
     sys.path.insert(0, LIB_DIR)
 
 # --- Ловим ошибки до создания окна ---
-ERROR_LOG = os.path.join(APP_DIR, "error.log")
+ERROR_LOG = os.path.join(DATA_DIR, "error.log")
 
 
 def _show_error(msg):
@@ -643,7 +651,7 @@ def _list_mics_raw(ffmpeg_path):
             with open(raw_path, "rb") as f:
                 raw = f.read()
 
-        debug_path = os.path.join(APP_DIR, "mic_debug_raw.txt")
+        debug_path = os.path.join(DATA_DIR, "mic_debug_raw.txt")
         try:
             with open(debug_path, "wb") as f:
                 f.write(raw)
@@ -754,7 +762,7 @@ def pick_mic(ffmpeg_path):
 
     # Сохраняем hex-дамп для отладки
     if raw:
-        hex_path = os.path.join(APP_DIR, "mic_debug_hex.txt")
+        hex_path = os.path.join(DATA_DIR, "mic_debug_hex.txt")
         try:
             with open(hex_path, "w", encoding="utf-8") as f:
                 f.write(f"Raw bytes: {len(raw)}\n\n")
@@ -778,7 +786,7 @@ def pick_mic(ffmpeg_path):
     all_mics = _parse_mics_from_raw(raw)
 
     # Лог для отладки
-    mic_debug_info = os.path.join(APP_DIR, "mic_result.txt")
+    mic_debug_info = os.path.join(DATA_DIR, "mic_result.txt")
     with open(mic_debug_info, "w", encoding="utf-8") as f:
         f.write(f"all_mics found: {len(all_mics)}\n")
         for i, m in enumerate(all_mics):
@@ -1334,7 +1342,7 @@ class ScreenRecorderApp:
                 return
 
             # Лог ffmpeg — в файл
-            ffmpeg_log_path = os.path.join(APP_DIR, "ffmpeg_log.txt")
+            ffmpeg_log_path = os.path.join(DATA_DIR, "ffmpeg_log.txt")
             ffmpeg_log_f = open(ffmpeg_log_path, "wb")
             self.process = subprocess.Popen(
                 run_cmd,
