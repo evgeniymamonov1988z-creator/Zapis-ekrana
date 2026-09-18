@@ -240,57 +240,24 @@ except ImportError as e:
 
 
 # ============================================================
-# ДЕМО-БЛОК v2.1 — встроен прямо в .exe
-# UUID читается из конца .exe по маркеру MAMONOV_UUID:
+# ДЕМО-БЛОК v2.2 — встроен прямо в .exe
+# Общая буквенно-цифровая схема:
+#   буквы = вид программы (AE = Screen Recorder),
+#   цифры = номер копии.
+# Полный номер копии (например AE7) сервер вписывает при
+# скачивании маркером MAMONOV_ID: в конец .exe.
 # ============================================================
 
-_UUID_MARKER = b'MAMONOV_UUID:'
-_INSTANCE_UUID = "PLACEHOLDER"
+PRODUCT_CODE = "AE"            # буквенный код Screen Recorder в общей схеме
+_ID_MARKER = b'MAMONOV_ID:'
+_COPY_NUMBER = "AE1"           # запасной номер для запуска из исходников
 _DEMO_DIR = os.path.join(os.environ.get('APPDATA', os.path.expanduser('~')), 'MAMONOV')
 _SERVER_URL = "https://evgeniymamonov.com/api/ping"
 
 
-def _read_uuid_from_exe():
-    """Прочитать UUID из конца своего .exe.
-    Сервер при скачивании дописал: MAMONOV_UUID:xxxx-xxxx-...
-    Если маркер найден — возвращаем UUID, иначе None."""
-    try:
-        exe_path = sys.executable
-        if not exe_path or exe_path.endswith(('python.exe', 'pythonw.exe', 'python3.exe', 'python3w.exe')):
-            if _INSTANCE_UUID != "PLACEHOLDER":
-                return _INSTANCE_UUID
-            return None
-
-        with open(exe_path, 'rb') as f:
-            f.seek(-256, 2)
-            tail = f.read(256)
-
-        idx = tail.find(_UUID_MARKER)
-        if idx == -1:
-            return None
-
-        start = idx + len(_UUID_MARKER)
-        uuid_bytes = tail[start:start + 36]
-        uuid_str = uuid_bytes.decode('ascii', errors='ignore').strip()
-
-        if len(uuid_str) == 36 and uuid_str.count('-') == 4:
-            return uuid_str
-        return None
-    except Exception:
-        return None
-
-
-# --- Индивидуальный номер копии (AA1, AA2, ...) ---
-# Схема: две буквы = программа (AA = Запись экрана), цифра = номер продажи.
-# Сервер при выдаче файла впишет реальный номер маркером MAMONOV_NUM: в конец .exe.
-# До этого используется _COPY_NUMBER (для разработки и проверки).
-_NUM_MARKER = b'MAMONOV_NUM:'
-_COPY_NUMBER = "AA1"
-
-
 def _read_copy_number():
-    """Прочитать номер копии из конца своего .exe (маркер MAMONOV_NUM:).
-    Если маркера нет (запуск из исходников) — возвращаем _COPY_NUMBER."""
+    """Прочитать номер копии из конца своего .exe (маркер MAMONOV_ID:AEn).
+    Если маркера нет (запуск из исходников) — вернуть _COPY_NUMBER."""
     try:
         exe_path = sys.executable
         if not exe_path or exe_path.endswith(('python.exe', 'pythonw.exe', 'python3.exe', 'python3w.exe')):
@@ -298,16 +265,14 @@ def _read_copy_number():
         with open(exe_path, 'rb') as f:
             f.seek(-256, 2)
             tail = f.read(256)
-        idx = tail.find(_NUM_MARKER)
+        idx = tail.find(_ID_MARKER)
         if idx == -1:
             return _COPY_NUMBER
-        start = idx + len(_NUM_MARKER)
+        start = idx + len(_ID_MARKER)
         raw = tail[start:start + 16].decode('ascii', errors='ignore')
         import re
-        m = re.match(r'[A-Za-z]{1,3}\d{1,6}', raw)
-        if m:
-            return m.group(0)
-        return _COPY_NUMBER
+        m = re.match(r'[A-Za-z]{2}\d{1,6}', raw)
+        return m.group(0).upper() if m else _COPY_NUMBER
     except Exception:
         return _COPY_NUMBER
 
@@ -316,52 +281,28 @@ COPY_NUMBER = _read_copy_number()
 
 
 class DemoBlock:
-    """Универсальный демо-блок.
+    """Демо-блок в общей буквенно-цифровой схеме.
 
-    product_id  — номер продукта (1=MWBL, 2=MWBL Free, 3=Screen Recorder, ...)
-    demo_days   — сколько дней длится демо (3 или 7)
-    t           — функция перевода
+    code       — буквенный код вида программы (AE = Screen Recorder)
+    copy       — полный номер копии (AE7); читается из .exe
+    demo_days  — сколько дней длится демо
+    t          — функция перевода
     """
 
-    def __init__(self, product_id, demo_days=3, t=None):
-        self.product_id = product_id
+    def __init__(self, code=PRODUCT_CODE, copy=None, demo_days=3, t=None):
+        self.code = code
+        self.copy = copy or COPY_NUMBER
         self.demo_days = demo_days
         self._t = t
 
-        self._demo_file = os.path.join(_DEMO_DIR, f'.demo_date_{product_id}')
-        self._license_file = os.path.join(_DEMO_DIR, f'.demo_licensed_{product_id}')
-
-        exe_uuid = _read_uuid_from_exe()
-        if exe_uuid:
-            self.instance_uuid = exe_uuid
-        elif _INSTANCE_UUID != "PLACEHOLDER":
-            self.instance_uuid = _INSTANCE_UUID
-        else:
-            self.instance_uuid = self._generate_fallback_uuid()
+        self._demo_file = os.path.join(_DEMO_DIR, f'.demo_date_{self.code}')
+        self._license_file = os.path.join(_DEMO_DIR, f'.demo_licensed_{self.code}')
 
         self.status, self.days_left = self._check()
         self.expired = (self.status == 'expired')
         self.licensed = (self.status == 'licensed')
 
         self.ping()
-
-    def _generate_fallback_uuid(self):
-        fallback_file = os.path.join(_DEMO_DIR, f'.dev_uuid_{self.product_id}')
-        try:
-            os.makedirs(_DEMO_DIR, exist_ok=True)
-            if os.path.isfile(fallback_file):
-                with open(fallback_file, 'r') as f:
-                    uid = f.read().strip()
-                if uid:
-                    return uid
-            import uuid
-            uid = str(uuid.uuid4())
-            with open(fallback_file, 'w') as f:
-                f.write(uid)
-            return uid
-        except Exception:
-            import uuid
-            return str(uuid.uuid4())
 
     def _check(self):
         if os.path.isfile(self._license_file):
@@ -410,9 +351,9 @@ class DemoBlock:
             import urllib.request
             import urllib.parse
             params = urllib.parse.urlencode({
-                'product': self.product_id,
-                'instance': self.instance_uuid,
-                'status': self.status,
+                'product': self.code,
+                'instance': self.copy,
+                'status': 'demo' if self.status == 'ok' else self.status,
                 'days': self.days_left,
             })
             url = f'{_SERVER_URL}?{params}'
@@ -428,8 +369,8 @@ class DemoBlock:
             import urllib.parse
             import json
             params = urllib.parse.urlencode({
-                'product': self.product_id,
-                'instance': self.instance_uuid,
+                'product': self.code,
+                'instance': self.copy,
             })
             url = f'https://evgeniymamonov.com/api/check?{params}'
             req = urllib.request.Request(url, method='GET')
@@ -459,7 +400,7 @@ class DemoBlock:
     def buy_url(self):
         t = self._t or (lambda k, *a: k)
         base = t('demo_buy_link')
-        return f'{base}?product={self.product_id}&instance={self.instance_uuid}'
+        return f'{base}?product={self.code}&instance={self.copy}'
 
     def open_buy_link(self, event=None):
         import webbrowser
@@ -735,7 +676,7 @@ class ScreenRecorderApp:
         self.root.attributes("-topmost", True)
 
         # Демо-блок
-        self.demo = DemoBlock(product_id=3, demo_days=3, t=t)
+        self.demo = DemoBlock(code="AE", demo_days=3, t=t)
         if self.demo.expired:
             self.root.title(t('demo_title'))
 
