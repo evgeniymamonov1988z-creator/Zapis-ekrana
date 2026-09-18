@@ -88,6 +88,13 @@ T = {
         'demo_buy': 'Разблокировать за 299 ₽',
         'demo_buy_link': 'https://evgeniymamonov.com/buy.html',
         'copy_label': '№ копии: {}',
+        # Первый запуск — скачивание ffmpeg
+        'dl_title': 'Первый запуск — установка',
+        'dl_wait': 'Идёт первичная настройка, подождите…',
+        'dl_ffmpeg': 'Скачиваю ffmpeg (~90 МБ)…',
+        'dl_extract': 'Распаковываю ffmpeg…',
+        'dl_done': 'Готово!',
+        'dl_error': 'Не удалось скачать ffmpeg (проверьте интернет)',
     },
     'en': {
         'title': 'Screen Recorder',
@@ -130,6 +137,13 @@ T = {
         'demo_buy': 'Unlock for $3.99',
         'demo_buy_link': 'https://evgeniymamonov.com/buy.html',
         'copy_label': 'Copy #: {}',
+        # First run — ffmpeg download
+        'dl_title': 'First run — setup',
+        'dl_wait': 'First-time setup, please wait…',
+        'dl_ffmpeg': 'Downloading ffmpeg (~90 MB)…',
+        'dl_extract': 'Extracting ffmpeg…',
+        'dl_done': 'Done!',
+        'dl_error': 'Failed to download ffmpeg (check your internet)',
     },
 }
 
@@ -453,16 +467,143 @@ class DemoBlock:
 
 
 # ============================================================
-# FFMPEG — ищем в bin/ рядом с программой, потом в PATH
+# FFMPEG — ищем рядом (bin/), в кэше пользователя, потом в PATH.
+# Если нигде нет — ensure_ffmpeg() скачает его из интернета.
 # ============================================================
+
+# Готовый статический билд (один ffmpeg.exe без внешних DLL)
+_FFMPEG_URL = "https://github.com/BtbN/FFmpeg-Builds/releases/latest/download/ffmpeg-master-latest-win64-gpl.zip"
+
+
+def _ffmpeg_cache_path():
+    """Путь к скачанному ffmpeg в профиле пользователя."""
+    base = os.environ.get('LOCALAPPDATA') or os.environ.get('APPDATA') or os.path.expanduser('~')
+    return os.path.join(base, 'MAMONOV', 'bin', 'ffmpeg.exe')
+
+
 def find_ffmpeg():
+    # 1) рядом с программой
     local = os.path.join(APP_DIR, "bin", "ffmpeg.exe")
     if os.path.isfile(local):
         return local
+    # 2) скачанный ранее в кэш
+    cached = _ffmpeg_cache_path()
+    if os.path.isfile(cached):
+        return cached
+    # 3) в PATH
     in_path = shutil.which("ffmpeg")
     if in_path:
         return in_path
     return None
+
+
+def ensure_ffmpeg(root):
+    """Вернуть путь к ffmpeg. Если его нигде нет — скачать из
+    интернета (единый .exe в %LOCALAPPDATA%\\MAMONOV\\bin) с окном
+    прогресса. При ошибке вернуть None."""
+    found = find_ffmpeg()
+    if found:
+        return found
+
+    import urllib.request
+    import zipfile
+    import tempfile
+
+    dest = _ffmpeg_cache_path()
+    try:
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+    except Exception:
+        return None
+
+    # Маленькое окно прогресса
+    win = None
+    lbl = None
+    try:
+        import tkinter as tk
+        win = tk.Toplevel(root)
+        win.title(t('dl_title'))
+        win.configure(bg="#2b2b2b")
+        win.attributes("-topmost", True)
+        win.resizable(False, False)
+        tk.Label(win, text=t('dl_wait'), bg="#2b2b2b", fg="#ffffff",
+                 font=("Segoe UI", 10)).pack(padx=20, pady=(16, 4))
+        lbl = tk.Label(win, text=t('dl_ffmpeg'), bg="#2b2b2b", fg="#4a9eff",
+                       font=("Segoe UI", 9))
+        lbl.pack(padx=20, pady=(0, 16))
+        win.update_idletasks()
+        w, h = 380, 100
+        x = (win.winfo_screenwidth() - w) // 2
+        y = (win.winfo_screenheight() - h) // 2
+        win.geometry(f"{w}x{h}+{x}+{y}")
+        win.update()
+    except Exception:
+        win = None
+        lbl = None
+
+    def _set(text):
+        try:
+            if lbl is not None:
+                lbl.config(text=text)
+            if win is not None:
+                win.update()
+        except Exception:
+            pass
+
+    tmp_zip = os.path.join(tempfile.gettempdir(), "mamonov_ffmpeg.zip")
+    ok = False
+    try:
+        req = urllib.request.Request(_FFMPEG_URL, headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            total = int(resp.headers.get('Content-Length', 0))
+            downloaded = 0
+            with open(tmp_zip, 'wb') as f:
+                while True:
+                    chunk = resp.read(65536)
+                    if not chunk:
+                        break
+                    f.write(chunk)
+                    downloaded += len(chunk)
+                    if total > 0:
+                        pct = int(downloaded * 100 / total)
+                        _set(t('dl_ffmpeg') + f"  {pct}%")
+                    else:
+                        mb = downloaded / (1024 * 1024)
+                        _set(t('dl_ffmpeg') + f"  {mb:.0f} MB")
+
+        _set(t('dl_extract'))
+        with zipfile.ZipFile(tmp_zip, 'r') as zf:
+            target = None
+            for n in zf.namelist():
+                nl = n.lower().replace('\\', '/')
+                if nl.endswith('bin/ffmpeg.exe'):
+                    target = n
+                    break
+            if target is None:
+                for n in zf.namelist():
+                    if n.lower().endswith('ffmpeg.exe'):
+                        target = n
+                        break
+            if target is not None:
+                with zf.open(target) as src, open(dest, 'wb') as out:
+                    shutil.copyfileobj(src, out)
+                ok = os.path.isfile(dest)
+    except Exception:
+        ok = False
+    finally:
+        try:
+            if os.path.isfile(tmp_zip):
+                os.remove(tmp_zip)
+        except Exception:
+            pass
+
+    _set(t('dl_done') if ok else t('dl_error'))
+    try:
+        if win is not None:
+            win.destroy()
+    except Exception:
+        pass
+
+    return dest if ok else None
 
 
 # ============================================================
@@ -690,7 +831,7 @@ class ScreenRecorderApp:
         if self.demo.expired:
             self.root.title(t('demo_title'))
 
-        self.ffmpeg = find_ffmpeg()
+        self.ffmpeg = ensure_ffmpeg(self.root)
         self.process = None
         self.timer_id = None
 

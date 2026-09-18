@@ -98,11 +98,11 @@ def install_ffmpeg():
     ffmpeg_bin = os.path.join(ffmpeg_dir, 'bin')
 
     # Скачать
-    url = 'https://github.com/BtbN/FFmpeg-Builds/releases/latest/download/ffmpeg-master-latest-win64-lgpl-shared.zip'
+    url = 'https://github.com/BtbN/FFmpeg-Builds/releases/latest/download/ffmpeg-master-latest-win64-gpl.zip'
     temp_zip = os.path.join(os.environ.get('TEMP', 'C:\\Temp'), 'ffmpeg_download.zip')
     temp_extract = os.path.join(os.environ.get('TEMP', 'C:\\Temp'), 'ffmpeg_extract')
 
-    print('  Скачиваю ffmpeg (≈73 МБ, GitHub CDN)...')
+    print('  Скачиваю ffmpeg (≈90 МБ, GitHub CDN)...')
     try:
         _download_with_progress(url, temp_zip)
     except Exception as e:
