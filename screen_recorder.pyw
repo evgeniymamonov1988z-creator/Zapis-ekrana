@@ -85,7 +85,7 @@ T = {
         'demo_days_2': 'ДЕМО — 2 дня',
         'demo_days_1': 'ДЕМО — 1 день',
         'demo_expired': 'Демо кончилось',
-        'demo_buy': 'Получить за отзыв',
+        'demo_buy': 'Разблокировать за 299 ₽',
         'demo_buy_link': 'https://evgeniymamonov.com/buy.html',
     },
     'en': {
@@ -126,7 +126,7 @@ T = {
         'demo_days_2': 'DEMO — 2 days',
         'demo_days_1': 'DEMO — 1 day',
         'demo_expired': 'Demo expired',
-        'demo_buy': 'Get for a review',
+        'demo_buy': 'Unlock for 299 ₽',
         'demo_buy_link': 'https://evgeniymamonov.com/buy.html',
     },
 }
