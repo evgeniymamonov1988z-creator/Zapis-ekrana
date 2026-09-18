@@ -38,12 +38,9 @@ if errorlevel 1 (
     goto :eof
 )
 
-rem --- put icon onto the exe via rcedit ---
-if exist mamonov_icon.ico (
-    echo.
-    echo === Applying icon ===
-    call set_icon.bat
-)
+rem --- icon is already embedded by PyInstaller (--icon). ---
+rem NOTE: do NOT run rcedit on a --onefile exe: it strips the embedded
+rem PyInstaller archive and breaks the program ("Could not load PKG archive").
 
 rem --- rename result to "Demo Запись экрана.exe" (Cyrillic built from Unicode codes, no Cyrillic in this file) ---
 echo.
