@@ -161,13 +161,6 @@ def t(key, *args):
 # --- Только одна копия программы ---
 import ctypes
 
-# 1. Найти окно по заголовку (если программа уже запущена)
-_hwnd = ctypes.windll.user32.FindWindowW(None, t('title'))
-if _hwnd:
-    ctypes.windll.user32.ShowWindow(_hwnd, 9)  # SW_RESTORE
-    ctypes.windll.user32.SetForegroundWindow(_hwnd)
-    sys.exit(0)
-
 # --- Скрытая папка данных (логи и служебные файлы) — НЕ на рабочем столе ---
 _DATA_BASE = os.environ.get('LOCALAPPDATA') or os.environ.get('APPDATA') or os.path.expanduser('~')
 DATA_DIR = os.path.join(_DATA_BASE, 'MAMONOV')
@@ -177,27 +170,25 @@ except Exception:
     DATA_DIR = os.path.dirname(os.path.abspath(
         sys.executable if getattr(sys, 'frozen', False) else __file__))
 
-# 2. Проверить PID-файл (на случай если окно ещё не создалось)
-_PID_FILE = os.path.join(DATA_DIR, '.screen_recorder.pid')
-if os.path.isfile(_PID_FILE):
-    try:
-        with open(_PID_FILE, 'r') as f:
-            old_pid = f.read().strip()
-        if old_pid:
-            _proc = ctypes.windll.kernel32.OpenProcess(0x100000, False, int(old_pid))  # SYNCHRONIZE
-            if _proc:
-                ctypes.windll.kernel32.CloseHandle(_proc)
-                # Процесс ещё жив — выходим
-                sys.exit(0)
-            else:
-                # Процесс мёртв — удаляем старый файл
-                os.remove(_PID_FILE)
-    except Exception:
-        pass
+# --- Только одна копия программы (надёжно, через именованный mutex) ---
+# Старый способ (PID-файл) давал ложные срабатывания: Windows переиспользует
+# номера процессов, поэтому программа могла решить, что копия уже запущена,
+# и молча закрыться. У mutex такого недостатка нет.
+_ALREADY_RUNNING = False
+try:
+    _mutex = ctypes.windll.kernel32.CreateMutexW(
+        None, False, "MAMONOV_ScreenRecorder_SingleInstance")
+    if ctypes.windll.kernel32.GetLastError() == 183:  # ERROR_ALREADY_EXISTS
+        _ALREADY_RUNNING = True
+except Exception:
+    _mutex = None
 
-# Записать свой PID
-with open(_PID_FILE, 'w') as f:
-    f.write(str(os.getpid()))
+if _ALREADY_RUNNING:
+    _hwnd = ctypes.windll.user32.FindWindowW(None, t('title'))
+    if _hwnd:
+        ctypes.windll.user32.ShowWindow(_hwnd, 9)  # SW_RESTORE
+        ctypes.windll.user32.SetForegroundWindow(_hwnd)
+    sys.exit(0)
 
 
 # --- Папка программы ---
