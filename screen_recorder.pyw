@@ -256,12 +256,23 @@ _SERVER_URL = "https://evgeniymamonov.com/api/ping"
 
 
 def _read_copy_number():
-    """Прочитать номер копии из конца своего .exe (маркер MAMONOV_ID:AEn).
-    Если маркера нет (запуск из исходников) — вернуть _COPY_NUMBER."""
+    """Прочитать номер копии.
+    1) Сначала — из имени файла (screen_recorder_AE7.exe → AE7). Основной способ.
+    2) Если в имени нет (переименовали) — из метки MAMONOV_ID: в конце .exe. Запасной.
+    3) Если ничего нет (запуск из исходников) — вернуть _COPY_NUMBER."""
+    import re
     try:
         exe_path = sys.executable
         if not exe_path or exe_path.endswith(('python.exe', 'pythonw.exe', 'python3.exe', 'python3w.exe')):
             return _COPY_NUMBER
+
+        # 1) Номер в имени файла — основной способ.
+        stem = os.path.splitext(os.path.basename(exe_path))[0]
+        m = re.search(r'([A-Za-z]{2}\d{1,6})$', stem)
+        if m:
+            return m.group(1).upper()
+
+        # 2) Метка в хвосте .exe — запасной (если файл переименовали).
         with open(exe_path, 'rb') as f:
             f.seek(-256, 2)
             tail = f.read(256)
@@ -270,7 +281,6 @@ def _read_copy_number():
             return _COPY_NUMBER
         start = idx + len(_ID_MARKER)
         raw = tail[start:start + 16].decode('ascii', errors='ignore')
-        import re
         m = re.match(r'[A-Za-z]{2}\d{1,6}', raw)
         return m.group(0).upper() if m else _COPY_NUMBER
     except Exception:
