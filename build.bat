@@ -48,6 +48,11 @@ echo === Renaming result to Demo Russian name ===
 powershell -NoProfile -Command "$c=[char[]](0x0417,0x0430,0x043F,0x0438,0x0441,0x044C,0x20,0x044D,0x043A,0x0440,0x0430,0x043D,0x0430); $n='Demo '+(-join $c)+'.exe'; if (Test-Path 'dist\ScreenRecorder.exe'){ Rename-Item -LiteralPath 'dist\ScreenRecorder.exe' -NewName $n -Force; Write-Host ('[OK] dist\'+$n) }"
 
 echo.
+echo === Copying demo helpers into dist ===
+if exist demo_panel_ON.bat copy /y demo_panel_ON.bat dist\ >nul
+if exist demo_panel_OFF.bat copy /y demo_panel_OFF.bat dist\ >nul
+
+echo.
 echo === Done! ===
 echo The ready file is in the dist folder.
 echo.
