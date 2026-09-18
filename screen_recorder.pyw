@@ -87,6 +87,7 @@ T = {
         'demo_expired': 'Демо кончилось',
         'demo_buy': 'Разблокировать за 299 ₽',
         'demo_buy_link': 'https://evgeniymamonov.com/buy.html',
+        'copy_label': '№ копии: {}',
     },
     'en': {
         'title': 'Screen Recorder',
@@ -128,6 +129,7 @@ T = {
         'demo_expired': 'Demo expired',
         'demo_buy': 'Unlock for $3.99',
         'demo_buy_link': 'https://evgeniymamonov.com/buy.html',
+        'copy_label': 'Copy #: {}',
     },
 }
 
@@ -276,6 +278,41 @@ def _read_uuid_from_exe():
         return None
     except Exception:
         return None
+
+
+# --- Индивидуальный номер копии (AA1, AA2, ...) ---
+# Схема: две буквы = программа (AA = Запись экрана), цифра = номер продажи.
+# Сервер при выдаче файла впишет реальный номер маркером MAMONOV_NUM: в конец .exe.
+# До этого используется _COPY_NUMBER (для разработки и проверки).
+_NUM_MARKER = b'MAMONOV_NUM:'
+_COPY_NUMBER = "AA1"
+
+
+def _read_copy_number():
+    """Прочитать номер копии из конца своего .exe (маркер MAMONOV_NUM:).
+    Если маркера нет (запуск из исходников) — возвращаем _COPY_NUMBER."""
+    try:
+        exe_path = sys.executable
+        if not exe_path or exe_path.endswith(('python.exe', 'pythonw.exe', 'python3.exe', 'python3w.exe')):
+            return _COPY_NUMBER
+        with open(exe_path, 'rb') as f:
+            f.seek(-256, 2)
+            tail = f.read(256)
+        idx = tail.find(_NUM_MARKER)
+        if idx == -1:
+            return _COPY_NUMBER
+        start = idx + len(_NUM_MARKER)
+        raw = tail[start:start + 16].decode('ascii', errors='ignore')
+        import re
+        m = re.match(r'[A-Za-z]{1,3}\d{1,6}', raw)
+        if m:
+            return m.group(0)
+        return _COPY_NUMBER
+    except Exception:
+        return _COPY_NUMBER
+
+
+COPY_NUMBER = _read_copy_number()
 
 
 class DemoBlock:
@@ -770,6 +807,11 @@ class ScreenRecorderApp:
         # Демо-строка (золотая)
         # Демо-строка (через DemoBlock)
         self.demo.build_bar(self.frm_top, t)
+
+        # Номер копии программы — виден всегда, даже в компактном виде
+        self.lbl_copy = tk.Label(self.frm_top, text=t('copy_label', COPY_NUMBER),
+                                 font=("Segoe UI", 8), fg="#777777", bg="#2b2b2b")
+        self.lbl_copy.pack(pady=(0, 4))
 
         self.frm_detail = tk.Frame(self.root, bg="#2b2b2b")
         self.frm_detail.pack(fill="x")
