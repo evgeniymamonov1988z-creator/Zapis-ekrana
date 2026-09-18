@@ -1105,8 +1105,12 @@ class ScreenRecorderApp:
         # попадала в видео (OBS и т.п.). Удалите файл — защита вернётся.
         try:
             for _d in (APP_DIR, DATA_DIR):
-                if os.path.isfile(os.path.join(_d, "demo_show_panel.txt")):
-                    return
+                try:
+                    for _nm in os.listdir(_d):
+                        if _nm.lower().startswith("demo_show_panel"):
+                            return
+                except Exception:
+                    pass
         except Exception:
             pass
         try:
