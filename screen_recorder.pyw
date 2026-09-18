@@ -1446,8 +1446,27 @@ def main():
         root = tk.Tk()
         root.geometry(f"{ScreenRecorderApp.WIN_W}x{ScreenRecorderApp.FULL_H}")
         app = ScreenRecorderApp(root)
-        root.protocol("WM_DELETE_WINDOW", lambda: (app._on_save_button(), root.destroy()))
+        def _quit():
+            # При закрытии окна — сохранить запись, остановить ffmpeg
+            # и гарантированно завершить процесс, чтобы программа
+            # не висела в фоне и могла снова запуститься.
+            try:
+                app._on_save_button()
+            except Exception:
+                pass
+            try:
+                app._stop_ffmpeg()
+            except Exception:
+                pass
+            try:
+                root.destroy()
+            except Exception:
+                pass
+            os._exit(0)
+
+        root.protocol("WM_DELETE_WINDOW", _quit)
         root.mainloop()
+        os._exit(0)
     except Exception as e:
         err = traceback.format_exc()
         _show_error(t('error_main', err))
