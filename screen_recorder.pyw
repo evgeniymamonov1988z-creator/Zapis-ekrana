@@ -1099,6 +1099,16 @@ class ScreenRecorderApp:
             self.cv_audio.itemconfig(self.lamp_audio, fill="#cc8800" if audio_ok else "#666666")
 
     def _hide_from_capture(self):
+        # ДЕМО-РЕЖИМ ДЛЯ СЪЁМКИ РОЛИКА:
+        # если рядом с программой (или в папке данных) лежит файл
+        # demo_show_panel.txt — НЕ прячем панель от записи, чтобы она
+        # попадала в видео (OBS и т.п.). Удалите файл — защита вернётся.
+        try:
+            for _d in (APP_DIR, DATA_DIR):
+                if os.path.isfile(os.path.join(_d, "demo_show_panel.txt")):
+                    return
+        except Exception:
+            pass
         try:
             import ctypes
             user32 = ctypes.windll.user32
