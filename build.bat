@@ -45,10 +45,10 @@ if exist mamonov_icon.ico (
     call set_icon.bat
 )
 
-rem --- rename result to Russian name (built from Unicode codes, no Cyrillic in this file) ---
+rem --- rename result to "Demo Запись экрана.exe" (Cyrillic built from Unicode codes, no Cyrillic in this file) ---
 echo.
-echo === Renaming result to Russian name ===
-powershell -NoProfile -Command "$c=[char[]](0x0417,0x0430,0x043F,0x0438,0x0441,0x044C,0x20,0x044D,0x043A,0x0440,0x0430,0x043D,0x0430); $n=(-join $c)+'.exe'; if (Test-Path 'dist\ScreenRecorder.exe'){ Rename-Item -LiteralPath 'dist\ScreenRecorder.exe' -NewName $n -Force; Write-Host ('[OK] dist\'+$n) }"
+echo === Renaming result to Demo Russian name ===
+powershell -NoProfile -Command "$c=[char[]](0x0417,0x0430,0x043F,0x0438,0x0441,0x044C,0x20,0x044D,0x043A,0x0440,0x0430,0x043D,0x0430); $n='Demo '+(-join $c)+'.exe'; if (Test-Path 'dist\ScreenRecorder.exe'){ Rename-Item -LiteralPath 'dist\ScreenRecorder.exe' -NewName $n -Force; Write-Host ('[OK] dist\'+$n) }"
 
 echo.
 echo === Done! ===
