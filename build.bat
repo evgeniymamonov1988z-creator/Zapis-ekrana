@@ -1,55 +1,57 @@
 @echo off
-chcp 65001 >nul
+setlocal
 set APP_DIR=%~dp0
-cd /d %APP_DIR%
+cd /d "%APP_DIR%"
 
-echo === Сборка MAMONOV Запись экрана (один .exe) ===
+echo === Building MAMONOV Screen Recorder (single .exe) ===
 echo.
 
-:: Удаляем старую сборку
+rem --- clean old build ---
 if exist dist rmdir /s /q dist
 if exist build rmdir /s /q build
-if exist "Запись экрана.spec" del "Запись экрана.spec"
 if exist ScreenRecorder.spec del ScreenRecorder.spec
 
-:: ffmpeg внутрь .exe (если лежит в bin\)
+rem --- ffmpeg inside .exe (only if present in bin\) ---
 set EXTRA=
 if exist bin\ffmpeg.exe (
     set EXTRA=--add-binary "bin\ffmpeg.exe;bin"
-    echo [OK] ffmpeg.exe будет внутри .exe
+    echo [OK] ffmpeg.exe will be embedded
 ) else (
-    echo [!] ffmpeg.exe не найден в bin\ — будет искаться в PATH
+    echo [i] ffmpeg.exe not in bin\ - app downloads it on first run
 )
 
-:: Иконка для Проводника
+rem --- icon for Explorer ---
 set ICON=
 if exist mamonov_icon.ico (
     set ICON=--icon=mamonov_icon.ico
-    echo [OK] Иконка mamonov_icon.ico
+    echo [OK] icon mamonov_icon.ico
 ) else (
-    echo [!] Иконка mamonov_icon.ico не найдена — Проводник покажет стандартную
+    echo [i] icon not found - default icon
 )
 
-pyinstaller --noconfirm --onefile --windowed --name "Запись экрана" %ICON% --add-data "updater.pyw;." --add-data "mamonov_icon.ico;." %EXTRA% screen_recorder.pyw
+pyinstaller --noconfirm --onefile --windowed --name ScreenRecorder %ICON% --add-data "updater.pyw;." --add-data "mamonov_icon.ico;." %EXTRA% screen_recorder.pyw
 
 if errorlevel 1 (
     echo.
-    echo [ОШИБКА] Сборка не удалась!
+    echo [ERROR] Build failed!
     pause
     goto :eof
 )
 
-:: Надеваем иконку через rcedit (после PyInstaller)
+rem --- put icon onto the exe via rcedit ---
 if exist mamonov_icon.ico (
     echo.
-    echo === Надеваем иконку на ScreenRecorder.exe ===
+    echo === Applying icon ===
     call set_icon.bat
-) else (
-    echo [!] Иконка не найдена — пропускаем
 )
 
+rem --- rename result to Russian name (built from Unicode codes, no Cyrillic in this file) ---
 echo.
-echo === Готово! ===
-echo Файл: dist\Запись экрана.exe
+echo === Renaming result to Russian name ===
+powershell -NoProfile -Command "$c=[char[]](0x0417,0x0430,0x043F,0x0438,0x0441,0x044C,0x20,0x044D,0x043A,0x0440,0x0430,0x043D,0x0430); $n=(-join $c)+'.exe'; if (Test-Path 'dist\ScreenRecorder.exe'){ Rename-Item -LiteralPath 'dist\ScreenRecorder.exe' -NewName $n -Force; Write-Host ('[OK] dist\'+$n) }"
+
+echo.
+echo === Done! ===
+echo The ready file is in the dist folder.
 echo.
 pause
