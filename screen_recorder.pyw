@@ -13,6 +13,7 @@
 
 import os
 import sys
+import re
 import subprocess
 import time
 import shutil
@@ -265,37 +266,86 @@ PRODUCT_CODE = "AE"            # буквенный код Screen Recorder в о
 _ID_MARKER = b'MAMONOV_ID:'
 _COPY_NUMBER = "AE1"           # запасной номер для запуска из исходников
 _DEMO_DIR = os.path.join(os.environ.get('APPDATA', os.path.expanduser('~')), 'MAMONOV')
-_SERVER_URL = "https://evgeniymamonov.com/api/ping"
+_SITE = "https://evgeniymamonov.com"
+_SERVER_URL = _SITE + "/api/ping.php"
+_COPY_RE = re.compile(r'^[A-Z]{2}\d+$')
+
+
+def _machine_id():
+    """Устойчивый «отпечаток» этого компьютера (16 hex-символов).
+
+    На Windows — MachineGuid из реестра (самый стабильный ид системы) +
+    имя компьютера. Запасной вариант — MAC-адрес. Без личных данных.
+    Та же схема, что и у «Кадрика» — одна копия = один компьютер.
+    """
+    import hashlib
+    import platform
+    parts = []
+    if os.name == 'nt':
+        try:
+            import winreg
+            key = winreg.OpenKey(
+                winreg.HKEY_LOCAL_MACHINE,
+                r'SOFTWARE\Microsoft\Cryptography', 0,
+                winreg.KEY_READ | winreg.KEY_WOW64_64KEY)
+            try:
+                guid, _ = winreg.QueryValueEx(key, 'MachineGuid')
+            finally:
+                winreg.CloseKey(key)
+            if guid:
+                parts.append(str(guid))
+        except Exception:
+            pass
+    try:
+        node = platform.node()
+        if node:
+            parts.append(node)
+    except Exception:
+        pass
+    if not parts:
+        try:
+            import uuid
+            parts.append(str(uuid.getnode()))
+        except Exception:
+            pass
+    raw = '|'.join(p for p in parts if p) or 'unknown'
+    return hashlib.sha256(raw.encode('utf-8', 'ignore')).hexdigest()[:16].upper()
 
 
 def _read_copy_number():
-    """Прочитать номер копии.
-    1) Сначала — из имени файла (screen_recorder_AE7.exe → AE7). Основной способ.
-    2) Если в имени нет (переименовали) — из метки MAMONOV_ID: в конце .exe. Запасной.
-    3) Если ничего нет (запуск из исходников) — вернуть _COPY_NUMBER."""
-    import re
+    """«Свежий» номер копии из самого файла.
+    Номер больше НЕ пишется в имя файла, поэтому:
+    1) Основной способ — метка MAMONOV_ID: в конце .exe (вписывает сайт).
+    2) Запасной — номер в имени файла (старые скачанные копии).
+    3) Запуск из исходников — _COPY_NUMBER.
+    Постоянный номер компьютера и восстановление с сервера — в DemoBlock."""
     try:
         exe_path = sys.executable
         if not exe_path or exe_path.endswith(('python.exe', 'pythonw.exe', 'python3.exe', 'python3w.exe')):
             return _COPY_NUMBER
 
-        # 1) Номер в имени файла — основной способ.
+        # 1) Метка в хвосте .exe — основной способ.
+        try:
+            with open(exe_path, 'rb') as f:
+                f.seek(-256, 2)
+                tail = f.read(256)
+            idx = tail.find(_ID_MARKER)
+            if idx != -1:
+                start = idx + len(_ID_MARKER)
+                raw = tail[start:start + 16].decode('ascii', errors='ignore')
+                m = re.match(r'[A-Za-z]{2}\d{1,6}', raw)
+                if m:
+                    return m.group(0).upper()
+        except Exception:
+            pass
+
+        # 2) Номер в имени файла — запасной (старые копии с номером в имени).
         stem = os.path.splitext(os.path.basename(exe_path))[0]
         m = re.search(r'([A-Za-z]{2}\d{1,6})$', stem)
         if m:
             return m.group(1).upper()
 
-        # 2) Метка в хвосте .exe — запасной (если файл переименовали).
-        with open(exe_path, 'rb') as f:
-            f.seek(-256, 2)
-            tail = f.read(256)
-        idx = tail.find(_ID_MARKER)
-        if idx == -1:
-            return _COPY_NUMBER
-        start = idx + len(_ID_MARKER)
-        raw = tail[start:start + 16].decode('ascii', errors='ignore')
-        m = re.match(r'[A-Za-z]{2}\d{1,6}', raw)
-        return m.group(0).upper() if m else _COPY_NUMBER
+        return _COPY_NUMBER
     except Exception:
         return _COPY_NUMBER
 
@@ -314,18 +364,90 @@ class DemoBlock:
 
     def __init__(self, code=PRODUCT_CODE, copy=None, demo_days=3, t=None):
         self.code = code
-        self.copy = copy or COPY_NUMBER
         self.demo_days = demo_days
         self._t = t
 
         self._demo_file = os.path.join(_DEMO_DIR, f'.demo_date_{self.code}')
         self._license_file = os.path.join(_DEMO_DIR, f'.demo_licensed_{self.code}')
+        self._copy_file = os.path.join(_DEMO_DIR, f'.copy_{self.code}')
+
+        # Постоянный номер копии на этот компьютер (с восстановлением
+        # по отпечатку, если локальный файл с номером потерялся).
+        self.copy = copy or self._resolve_copy()
 
         self.status, self.days_left = self._check()
         self.expired = (self.status == 'expired')
         self.licensed = (self.status == 'licensed')
 
         self.ping()
+
+    # ---- Постоянный номер копии на компьютер ----
+
+    def _load_saved_copy(self):
+        """Сохранённый постоянный номер этого компьютера (или '')."""
+        try:
+            with open(self._copy_file, 'r', encoding='utf-8') as f:
+                val = (f.read().strip() or '').upper()
+            return val if _COPY_RE.match(val) else ''
+        except Exception:
+            return ''
+
+    def _save_copy(self, val):
+        """Закрепить номер за компьютером (скрытый файл)."""
+        try:
+            os.makedirs(_DEMO_DIR, exist_ok=True)
+            with open(self._copy_file, 'w', encoding='utf-8') as f:
+                f.write(val)
+            if os.name == 'nt':
+                try:
+                    ctypes.windll.kernel32.SetFileAttributesW(self._copy_file, 2)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    def _recover_copy(self):
+        """Спросить сервер, какой номер закреплён за этим компьютером.
+        Возвращает (copy, reached): copy — номер или '', reached — дошли ли
+        до сервера."""
+        try:
+            import urllib.request
+            import urllib.parse
+            import json
+            params = urllib.parse.urlencode({'machine': _machine_id()})
+            url = f'{_SITE}/api/recover.php?{params}'
+            req = urllib.request.Request(url, method='GET')
+            req.add_header('User-Agent', 'MAMONOV-DemoBlock/2.2')
+            resp = urllib.request.urlopen(req, timeout=5)
+            data = json.loads(resp.read().decode('utf-8', 'ignore') or '{}')
+            copy = (data.get('copy', '') or '').upper()
+            return (copy if _COPY_RE.match(copy) else ''), True
+        except Exception:
+            return '', False
+
+    def _resolve_copy(self):
+        """Постоянный номер копии для этого компьютера.
+
+        Порядок: сохранённый локально → восстановленный с сервера по отпечатку
+        → «свежий» из файла. Новый номер закрепляем только на действительно
+        новом компьютере (когда сервер ответил, что номера ещё нет).
+        """
+        saved = self._load_saved_copy()
+        if _COPY_RE.match(saved):
+            return saved
+        rec, reached = self._recover_copy()
+        if _COPY_RE.match(rec or ''):
+            self._save_copy(rec)
+            return rec
+        fresh = (COPY_NUMBER or '').upper()
+        if _COPY_RE.match(fresh):
+            # Закрепляем, только если сервер точно ответил (правда новый
+            # компьютер). Без связи — вернём номер на сеанс, но не закрепляем:
+            # как появится интернет, восстановим настоящий номер.
+            if reached:
+                self._save_copy(fresh)
+            return fresh
+        return _COPY_NUMBER
 
     def _check(self):
         if os.path.isfile(self._license_file):
@@ -376,12 +498,13 @@ class DemoBlock:
             params = urllib.parse.urlencode({
                 'product': self.code,
                 'instance': self.copy,
+                'machine': _machine_id(),
                 'status': 'demo' if self.status == 'ok' else self.status,
                 'days': self.days_left,
             })
             url = f'{_SERVER_URL}?{params}'
             req = urllib.request.Request(url, method='GET')
-            req.add_header('User-Agent', 'MAMONOV-DemoBlock/2.1')
+            req.add_header('User-Agent', 'MAMONOV-DemoBlock/2.2')
             urllib.request.urlopen(req, timeout=3)
         except Exception:
             pass
@@ -394,10 +517,11 @@ class DemoBlock:
             params = urllib.parse.urlencode({
                 'product': self.code,
                 'instance': self.copy,
+                'machine': _machine_id(),
             })
-            url = f'https://evgeniymamonov.com/api/check?{params}'
+            url = f'{_SITE}/api/check.php?{params}'
             req = urllib.request.Request(url, method='GET')
-            req.add_header('User-Agent', 'MAMONOV-DemoBlock/2.1')
+            req.add_header('User-Agent', 'MAMONOV-DemoBlock/2.2')
             resp = urllib.request.urlopen(req, timeout=5)
             data = json.loads(resp.read().decode('utf-8'))
             if data.get('licensed'):
