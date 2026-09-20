@@ -598,8 +598,25 @@ class DemoBlock:
 _FFMPEG_URL = "https://github.com/BtbN/FFmpeg-Builds/releases/latest/download/ffmpeg-master-latest-win64-gpl.zip"
 
 
+def _video_base():
+    """Папка с записями: Рабочий стол / Mamonov / Mamonov video."""
+    return os.path.join(os.path.expanduser("~"), "Desktop", "Mamonov", "Mamonov video")
+
+
+def _bin_dir():
+    """Папка с рабочими файлами (ffmpeg и т.п.):
+    Mamonov / Mamonov video / bin."""
+    return os.path.join(_video_base(), "bin")
+
+
 def _ffmpeg_cache_path():
-    """Путь к скачанному ffmpeg в профиле пользователя."""
+    """Путь к скачанному ffmpeg в рабочей папке программы."""
+    return os.path.join(_bin_dir(), 'ffmpeg.exe')
+
+
+def _ffmpeg_legacy_cache_path():
+    """Старое место (%LOCALAPPDATA%\\MAMONOV\\bin) — чтобы уже
+    скачанный раньше ffmpeg не качать заново."""
     base = os.environ.get('LOCALAPPDATA') or os.environ.get('APPDATA') or os.path.expanduser('~')
     return os.path.join(base, 'MAMONOV', 'bin', 'ffmpeg.exe')
 
@@ -609,10 +626,21 @@ def find_ffmpeg():
     local = os.path.join(APP_DIR, "bin", "ffmpeg.exe")
     if os.path.isfile(local):
         return local
-    # 2) скачанный ранее в кэш
+    # 2) скачанный ранее в рабочую папку Mamonov video\\bin
     cached = _ffmpeg_cache_path()
     if os.path.isfile(cached):
         return cached
+    # 2б) старое место кэша (старые установки) — переносим в новое
+    legacy = _ffmpeg_legacy_cache_path()
+    if os.path.isfile(legacy):
+        try:
+            os.makedirs(_bin_dir(), exist_ok=True)
+            shutil.copy2(legacy, cached)
+            if os.path.isfile(cached):
+                return cached
+        except Exception:
+            pass
+        return legacy
     # 3) в PATH
     in_path = shutil.which("ffmpeg")
     if in_path:
@@ -622,8 +650,9 @@ def find_ffmpeg():
 
 def ensure_ffmpeg(root):
     """Вернуть путь к ffmpeg. Если его нигде нет — скачать из
-    интернета (единый .exe в %LOCALAPPDATA%\\MAMONOV\\bin) с окном
-    прогресса. При ошибке вернуть None."""
+    интернета (единый .exe в рабочую папку
+    Mamonov\\Mamonov video\\bin) с окном прогресса.
+    При ошибке вернуть None."""
     found = find_ffmpeg()
     if found:
         return found
@@ -1247,7 +1276,7 @@ class ScreenRecorderApp:
             pass
 
     def _save_dir(self):
-        base = os.path.join(os.path.expanduser("~"), "Desktop", "Mamonov", "Mamonov video")
+        base = _video_base()
         os.makedirs(base, exist_ok=True)
         return base
 
