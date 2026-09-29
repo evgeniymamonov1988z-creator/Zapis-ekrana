@@ -366,10 +366,13 @@ class DemoBlock:
         self.code = code
         self.demo_days = demo_days
         self._t = t
+        self._bar_frame = None
 
         self._demo_file = os.path.join(_DEMO_DIR, f'.demo_date_{self.code}')
         self._license_file = os.path.join(_DEMO_DIR, f'.demo_licensed_{self.code}')
         self._copy_file = os.path.join(_DEMO_DIR, f'.copy_{self.code}')
+        # Файл со статусом — в папке Mamonov video\bin рядом с рабочими файлами.
+        self._status_file = os.path.join(_bin_dir(), f'status_{self.code}.txt')
 
         # Постоянный номер копии на этот компьютер (с восстановлением
         # по отпечатку, если локальный файл с номером потерялся).
@@ -378,6 +381,9 @@ class DemoBlock:
         self.status, self.days_left = self._check()
         self.expired = (self.status == 'expired')
         self.licensed = (self.status == 'licensed')
+
+        # Записать понятный файл со статусом на компьютер.
+        self._write_status()
 
         self.ping()
 
@@ -450,6 +456,12 @@ class DemoBlock:
         return _COPY_NUMBER
 
     def _check(self):
+        # 1) Сначала смотрим сохранённый на компьютере статус (работает
+        # без интернета). Если копия уже отмечена оплаченной —
+        # остаёмся полной версией.
+        if self._read_status() == 'licensed':
+            return ('licensed', 0)
+
         if os.path.isfile(self._license_file):
             try:
                 with open(self._license_file, 'r') as f:
@@ -488,6 +500,44 @@ class DemoBlock:
             self.status = 'licensed'
             self.licensed = True
             self.expired = False
+            self._write_status()
+        except Exception:
+            pass
+
+    def _read_status(self):
+        """Прочитать сохранённый статус с компьютера.
+        Возвращает 'licensed' / 'demo' / 'expired' или '' (файла нет)."""
+        try:
+            import json
+            with open(self._status_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            return str(data.get('status', '') or '')
+        except Exception:
+            return ''
+
+    def _write_status(self):
+        """Сохранить статус копии в понятный файл на компьютере.
+        Программа читает его при запуске (без интернета), а сервер
+        периодически уточняет его, когда есть связь."""
+        try:
+            import json
+            os.makedirs(os.path.dirname(self._status_file), exist_ok=True)
+            if self.status == 'licensed':
+                code, text = 'licensed', 'Оплачено (полная версия)'
+            elif self.status == 'expired':
+                code, text = 'expired', 'Демо кончилось — не оплачено'
+            else:
+                code, text = 'demo', f'Демо, осталось дней: {self.days_left}'
+            data = {
+                'product': self.code,
+                'copy': self.copy,
+                'status': code,
+                'status_text': text,
+                'days_left': self.days_left,
+                'updated': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            }
+            with open(self._status_file, 'w', encoding='utf-8') as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
         except Exception:
             pass
 
@@ -524,6 +574,13 @@ class DemoBlock:
             req.add_header('User-Agent', 'MAMONOV-DemoBlock/2.2')
             resp = urllib.request.urlopen(req, timeout=5)
             data = json.loads(resp.read().decode('utf-8'))
+            # Сервер может прислать закреплённый/оплаченный номер копии —
+            # принимаем его и делаем своим («переименование» копии).
+            srv_copy = (data.get('copy', '') or '').upper()
+            if _COPY_RE.match(srv_copy) and srv_copy != self.copy:
+                self.copy = srv_copy
+                self._save_copy(srv_copy)
+                self._write_status()
             if data.get('licensed'):
                 self.mark_licensed()
                 if callback:
@@ -561,6 +618,7 @@ class DemoBlock:
 
         frm = tk.Frame(parent, bg="#2b2b2b")
         frm.pack(fill="x", padx=10, pady=(5, 0))
+        self._bar_frame = frm
 
         lbl_demo = tk.Label(frm, text=self.bar_text(),
                             font=("Segoe UI", 9, "bold"),
@@ -1017,6 +1075,11 @@ class ScreenRecorderApp:
         self._check_deps()
         self._update_ui()
 
+        # Спросить сервер, оплачена ли эта копия (и закрепить её за
+        # компьютером при первом запуске). Делаем в фоне, чтобы не
+        # тормозить открытие окна.
+        self.root.after(1200, self._start_license_check)
+
         self.root.after(200, self._hide_from_capture)
         self._hover_check_id = None
         self._schedule_hover_check()
@@ -1051,11 +1114,6 @@ class ScreenRecorderApp:
         # Демо-строка (золотая)
         # Демо-строка (через DemoBlock)
         self.demo.build_bar(self.frm_top, t)
-
-        # Номер копии программы — виден всегда, даже в компактном виде
-        self.lbl_copy = tk.Label(self.frm_top, text=t('copy_label', COPY_NUMBER),
-                                 font=("Segoe UI", 8), fg="#777777", bg="#2b2b2b")
-        self.lbl_copy.pack(pady=(0, 4))
 
         self.frm_detail = tk.Frame(self.root, bg="#2b2b2b")
         self.frm_detail.pack(fill="x")
@@ -1250,6 +1308,53 @@ class ScreenRecorderApp:
             self.btn_save.config(state="normal")
             self.cv_video.itemconfig(self.lamp_video, fill="#cc8800")
             self.cv_audio.itemconfig(self.lamp_audio, fill="#cc8800" if audio_ok else "#666666")
+
+    def _start_license_check(self):
+        # Фоновый запрос к серверу: оплачена ли копия.
+        # При первом запуске этот же запрос закрепляет копию за
+        # компьютером на сервере (check.php -> machine_bind).
+        import threading
+
+        def _worker():
+            try:
+                self.demo.check_server_license(
+                    callback=lambda: self.root.after(0, self._on_license_confirmed))
+            except Exception:
+                pass
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+        # Периодически сверяться с сервером (раз в 30 минут),
+        # пока программа открыта и есть интернет.
+        try:
+            if self.root.winfo_exists():
+                self.root.after(30 * 60 * 1000, self._start_license_check)
+        except Exception:
+            pass
+
+    def _on_license_confirmed(self):
+        # Сервер подтвердил оплату — снимаем демо на лету:
+        # убираем демо-строку и включаем кнопки.
+        try:
+            if not self.root.winfo_exists():
+                return
+        except Exception:
+            return
+        try:
+            bar = getattr(self.demo, '_bar_frame', None)
+            if bar is not None:
+                bar.destroy()
+                self.demo._bar_frame = None
+        except Exception:
+            pass
+        try:
+            self.root.title(t('title'))
+        except Exception:
+            pass
+        try:
+            self._update_ui()
+        except Exception:
+            pass
 
     def _hide_from_capture(self):
         # ДЕМО-РЕЖИМ ДЛЯ СЪЁМКИ РОЛИКА:
