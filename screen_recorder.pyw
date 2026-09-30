@@ -135,8 +135,8 @@ T = {
         'demo_days_2': 'DEMO — 2 days',
         'demo_days_1': 'DEMO — 1 day',
         'demo_expired': 'Demo expired',
-        'demo_buy': 'Unlock for $3.99',
-        'demo_buy_link': 'https://evgeniymamonov.com/buy.html',
+        'demo_buy': 'Unlock for $9.99',
+        'demo_buy_link': 'https://evgeniymamonov.com/en/buy.html',
         'copy_label': 'Copy #: {}',
         # First run — ffmpeg download
         'dl_title': 'First run — setup',
