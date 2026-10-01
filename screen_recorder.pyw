@@ -1418,20 +1418,42 @@ class ScreenRecorderApp:
         try:
             import ctypes
             user32 = ctypes.windll.user32
-            # Находим СВОЁ окно напрямую, без привязки к заголовку
-            # (заголовок меняется: демо / полная / после проверки лицензии),
-            # поэтому поиск по названию был ненадёжным.
             self.root.update_idletasks()
-            GA_ROOT = 2
-            hwnd = user32.GetAncestor(self.root.winfo_id(), GA_ROOT)
-            if hwnd:
-                WDA_EXCLUDEFROMCAPTURE = 0x11  # окно не попадает в запись (Win10 2004+)
-                ok = user32.SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE)
-                if not ok:
-                    # Запасной вариант для старых Windows: окно в записи
-                    # будет чёрным прямоугольником, но содержимое не видно.
-                    WDA_MONITOR = 0x01
-                    user32.SetWindowDisplayAffinity(hwnd, WDA_MONITOR)
+
+            # ВАЖНО: сама программа пишет экран через ffmpeg gdigrab
+            # (-f gdigrab -i desktop). gdigrab снимает экран "по-старому"
+            # (GDI BitBlt) и НЕ обращает внимания на метку
+            # WDA_EXCLUDEFROMCAPTURE (0x11) — поэтому с ней панель всё равно
+            # попадала в видео. А вот метку WDA_MONITOR (0x01) gdigrab
+            # уважает: окно остаётся видимым на мониторе, но в запись не
+            # попадает. Именно так работает проверенная рабочая сборка.
+            WDA_MONITOR = 0x01
+
+            # Собираем все возможные дескрипторы нашего окна и помечаем
+            # каждый — так надёжнее, чем полагаться на один способ.
+            hwnds = set()
+            try:
+                GA_ROOT = 2
+                h = user32.GetAncestor(self.root.winfo_id(), GA_ROOT)
+                if h:
+                    hwnds.add(h)
+            except Exception:
+                pass
+            # Запасной способ — найти окно по текущему заголовку.
+            try:
+                title = self.root.title()
+                if title:
+                    h = user32.FindWindowW(None, title)
+                    if h:
+                        hwnds.add(h)
+            except Exception:
+                pass
+
+            for h in hwnds:
+                try:
+                    user32.SetWindowDisplayAffinity(h, WDA_MONITOR)
+                except Exception:
+                    pass
         except Exception:
             pass
 
