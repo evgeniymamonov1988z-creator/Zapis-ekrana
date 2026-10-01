@@ -1417,43 +1417,72 @@ class ScreenRecorderApp:
             pass
         try:
             import ctypes
+            from ctypes import wintypes
             user32 = ctypes.windll.user32
+            kernel32 = ctypes.windll.kernel32
             self.root.update_idletasks()
 
-            # ВАЖНО: сама программа пишет экран через ffmpeg gdigrab
-            # (-f gdigrab -i desktop). gdigrab снимает экран "по-старому"
-            # (GDI BitBlt) и НЕ обращает внимания на метку
-            # WDA_EXCLUDEFROMCAPTURE (0x11) — поэтому с ней панель всё равно
-            # попадала в видео. А вот метку WDA_MONITOR (0x01) gdigrab
-            # уважает: окно остаётся видимым на мониторе, но в запись не
-            # попадает. Именно так работает проверенная рабочая сборка.
-            WDA_MONITOR = 0x01
+            # Чтобы на 64-битной Windows дескрипторы окон не обрезались.
+            user32.FindWindowW.restype = wintypes.HWND
+            user32.GetAncestor.restype = wintypes.HWND
 
-            # Собираем все возможные дескрипторы нашего окна и помечаем
-            # каждый — так надёжнее, чем полагаться на один способ.
-            hwnds = set()
-            try:
-                GA_ROOT = 2
-                h = user32.GetAncestor(self.root.winfo_id(), GA_ROOT)
+            # 17 (0x11) = WDA_EXCLUDEFROMCAPTURE — именно это значение
+            # стоит в проверенной рабочей сборке и реально убирает окно
+            # из записи. Проблема была не в значении, а в том, что прежний
+            # способ (GetAncestor) находил не то окно. Здесь помечаем
+            # окно сразу несколькими способами — работает на любом
+            # языке («Screen Recorder» / «Запись экрана») и в демо, и в полной.
+            WDA = 0x11
+            my_pid = kernel32.GetCurrentProcessId()
+
+            def _apply(h):
                 if h:
-                    hwnds.add(h)
-            except Exception:
-                pass
-            # Запасной способ — найти окно по текущему заголовку.
+                    try:
+                        user32.SetWindowDisplayAffinity(h, WDA)
+                    except Exception:
+                        pass
+
+            # 1) По заголовку: текущий + оба языка, обычный и «ДЕМО».
+            titles = {
+                self.root.title(),
+                'Screen Recorder', 'Запись экрана',
+                'Screen Recorder — DEMO', 'Запись экрана — ДЕМО',
+            }
+            for ttl in titles:
+                if ttl:
+                    try:
+                        _apply(user32.FindWindowW(None, ttl))
+                    except Exception:
+                        pass
+
+            # 2) Самый надёжный способ: помечаем все видимые окна
+            #    верхнего уровня, принадлежащие нашему процессу
+            #    (не зависит от заголовка и языка).
             try:
-                title = self.root.title()
-                if title:
-                    h = user32.FindWindowW(None, title)
-                    if h:
-                        hwnds.add(h)
+                WNDENUMPROC = ctypes.WINFUNCTYPE(
+                    wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+
+                def _cb(hwnd, lparam):
+                    try:
+                        if user32.IsWindowVisible(hwnd):
+                            pid = wintypes.DWORD(0)
+                            user32.GetWindowThreadProcessId(
+                                hwnd, ctypes.byref(pid))
+                            if pid.value == my_pid:
+                                _apply(hwnd)
+                    except Exception:
+                        pass
+                    return True
+
+                user32.EnumWindows(WNDENUMPROC(_cb), 0)
             except Exception:
                 pass
 
-            for h in hwnds:
-                try:
-                    user32.SetWindowDisplayAffinity(h, WDA_MONITOR)
-                except Exception:
-                    pass
+            # 3) Само окно Tk напрямую (на всякий случай).
+            try:
+                _apply(user32.GetAncestor(self.root.winfo_id(), 2))  # GA_ROOT
+            except Exception:
+                pass
         except Exception:
             pass
 
@@ -1623,6 +1652,12 @@ class ScreenRecorderApp:
 
     def _spawn_segment(self):
         """Запустить ffmpeg для нового сегмента."""
+        # Гарантируем, что окно скрыто от записи именно в момент
+        # старта записи (заголовок к этому моменту уже окончательный).
+        try:
+            self._hide_from_capture()
+        except Exception:
+            pass
         self.segment_num += 1
         tmp = self._get_temp_dir()
         seg_path = os.path.join(tmp, f"seg_{self.segment_num}.mp4")
