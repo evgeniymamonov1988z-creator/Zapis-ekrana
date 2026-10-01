@@ -1401,20 +1401,9 @@ class ScreenRecorderApp:
             pass
 
     def _hide_from_capture(self):
-        # ДЕМО-РЕЖИМ ДЛЯ СЪЁМКИ РОЛИКА:
-        # если рядом с программой (или в папке данных) лежит файл
-        # demo_show_panel.txt — НЕ прячем панель от записи, чтобы она
-        # попадала в видео (OBS и т.п.). Удалите файл — защита вернётся.
-        try:
-            for _d in (APP_DIR, DATA_DIR):
-                try:
-                    for _nm in os.listdir(_d):
-                        if _nm.lower().startswith("demo_show_panel"):
-                            return
-                except Exception:
-                    pass
-        except Exception:
-            pass
+        # Прячем окно программы от записи экрана — ВСЕГДА, как в проверенной
+        # рабочей сборке. Никаких исключений/файлов-переключателей здесь нет:
+        # панель видна на мониторе, но не попадает в видео.
         try:
             import ctypes
             from ctypes import wintypes
@@ -1425,6 +1414,9 @@ class ScreenRecorderApp:
             # Чтобы на 64-битной Windows дескрипторы окон не обрезались.
             user32.FindWindowW.restype = wintypes.HWND
             user32.GetAncestor.restype = wintypes.HWND
+            user32.SetWindowDisplayAffinity.argtypes = [
+                wintypes.HWND, wintypes.DWORD]
+            user32.SetWindowDisplayAffinity.restype = wintypes.BOOL
 
             # 17 (0x11) = WDA_EXCLUDEFROMCAPTURE — именно это значение
             # стоит в проверенной рабочей сборке и реально убирает окно
