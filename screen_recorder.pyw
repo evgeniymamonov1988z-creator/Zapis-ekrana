@@ -1418,9 +1418,20 @@ class ScreenRecorderApp:
         try:
             import ctypes
             user32 = ctypes.windll.user32
-            hwnd = user32.FindWindowW(None, t('title'))
+            # Находим СВОЁ окно напрямую, без привязки к заголовку
+            # (заголовок меняется: демо / полная / после проверки лицензии),
+            # поэтому поиск по названию был ненадёжным.
+            self.root.update_idletasks()
+            GA_ROOT = 2
+            hwnd = user32.GetAncestor(self.root.winfo_id(), GA_ROOT)
             if hwnd:
-                user32.SetWindowDisplayAffinity(hwnd, 0x11)
+                WDA_EXCLUDEFROMCAPTURE = 0x11  # окно не попадает в запись (Win10 2004+)
+                ok = user32.SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE)
+                if not ok:
+                    # Запасной вариант для старых Windows: окно в записи
+                    # будет чёрным прямоугольником, но содержимое не видно.
+                    WDA_MONITOR = 0x01
+                    user32.SetWindowDisplayAffinity(hwnd, WDA_MONITOR)
         except Exception:
             pass
 
