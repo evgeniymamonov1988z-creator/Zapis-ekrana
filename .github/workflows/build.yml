@@ -1,12 +1,18 @@
 name: Build Windows EXE
 
 # Automatic, reproducible build from source.
-# Produces the ScreenRecorder.exe artifact that SignPath can sign.
+# Produces the ScreenRecorder.exe artifact that SignPath can sign,
+# and publishes it to a rolling GitHub Release (tag: auto-build) so the
+# website can pull the latest build automatically.
 
 on:
   push:
     branches: [ master, main ]
   workflow_dispatch:
+
+# Needed so the built-in GITHUB_TOKEN can create/update the release.
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -42,3 +48,12 @@ jobs:
           name: ScreenRecorder
           path: dist/ScreenRecorder.exe
           if-no-files-found: error
+
+      - name: Publish to rolling release (auto-build)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: auto-build
+          name: "\u0410\u0432\u0442\u043e\u0441\u0431\u043e\u0440\u043a\u0430 \u2014 \u043f\u043e\u0441\u043b\u0435\u0434\u043d\u044f\u044f \u0432\u0435\u0440\u0441\u0438\u044f"
+          body: "\u0410\u0432\u0442\u043e\u043c\u0430\u0442\u0438\u0447\u0435\u0441\u043a\u0430\u044f \u0441\u0431\u043e\u0440\u043a\u0430 ScreenRecorder.exe \u0438\u0437 \u0432\u0435\u0442\u043a\u0438 master. \u041e\u0431\u043d\u043e\u0432\u043b\u044f\u0435\u0442\u0441\u044f \u043f\u0440\u0438 \u043a\u0430\u0436\u0434\u043e\u0439 \u0441\u0431\u043e\u0440\u043a\u0435."
+          files: dist/ScreenRecorder.exe
+          make_latest: true
