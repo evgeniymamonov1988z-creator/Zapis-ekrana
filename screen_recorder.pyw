@@ -270,6 +270,15 @@ _SITE = "https://evgeniymamonov.com"
 _SERVER_URL = _SITE + "/api/ping.php"
 _COPY_RE = re.compile(r'^[A-Z]{2}\d+$')
 
+# --- Версия для магазина Digiseller --------------------------------------
+# True  — сборка для магазина: один «полный» файл для всех; при первом
+#         запуске программа сама получает свободный номер с сервера и
+#         сразу становится полной (одна копия — один компьютер).
+#         Без интернета всё равно работает как полная.
+# False — обычная сборка для сайта (номер вшивается при скачивании,
+#         полную открывает оплата). Для сайта ОСТАВЛЯЙТЕ False.
+STORE_EDITION = False
+
 
 def _machine_id():
     """Устойчивый «отпечаток» этого компьютера (16 hex-символов).
@@ -376,7 +385,13 @@ class DemoBlock:
 
         # Постоянный номер копии на этот компьютер (с восстановлением
         # по отпечатку, если локальный файл с номером потерялся).
-        self.copy = copy or self._resolve_copy()
+        if STORE_EDITION:
+            # Магазинная версия: номер выдаёт сервер при первом запуске,
+            # копия сразу считается оплаченной (работает и без интернета).
+            self.copy = copy or self._load_saved_copy() or (COPY_NUMBER or _COPY_NUMBER)
+            self._activate_store()
+        else:
+            self.copy = copy or self._resolve_copy()
 
         self.status, self.days_left = self._check()
         self.expired = (self.status == 'expired')
@@ -410,6 +425,31 @@ class DemoBlock:
                 except Exception:
                     pass
         except Exception:
+            pass
+
+    def _activate_store(self):
+        """Магазинная версия (Digiseller): получить свободный номер и
+        статус «оплачено» с сервера при первом запуске.
+
+        Если за этим компьютером номер уже есть — сервер вернёт его же
+        (новые номера не плодятся). Без интернета программа всё равно
+        работает как полная — номер закрепится позже, при связи."""
+        try:
+            import urllib.request
+            import urllib.parse
+            import json
+            params = urllib.parse.urlencode({'code': self.code, 'machine': _machine_id()})
+            url = f'{_SITE}/api/activate.php?{params}'
+            req = urllib.request.Request(url, method='GET')
+            req.add_header('User-Agent', 'MAMONOV-Store/1.0')
+            resp = urllib.request.urlopen(req, timeout=5)
+            data = json.loads(resp.read().decode('utf-8', 'ignore') or '{}')
+            copy = (data.get('copy', '') or '').upper()
+            if _COPY_RE.match(copy):
+                self.copy = copy
+                self._save_copy(copy)
+        except Exception:
+            # Нет связи — ничего страшного: программа и так полная.
             pass
 
     def _recover_copy(self):
@@ -456,6 +496,10 @@ class DemoBlock:
         return _COPY_NUMBER
 
     def _check(self):
+        # Магазинная версия (Digiseller) всегда полная — даже без интернета.
+        if STORE_EDITION:
+            return ('licensed', 0)
+
         # 1) Сначала смотрим сохранённый на компьютере статус (работает
         # без интернета). Если копия уже отмечена оплаченной —
         # остаёмся полной версией.
