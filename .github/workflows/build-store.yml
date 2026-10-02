@@ -11,6 +11,9 @@ name: Build Store EXE (Digiseller)
 
 on:
   workflow_dispatch:
+  push:
+    tags:
+      - 'store-*'
 
 permissions:
   contents: write
