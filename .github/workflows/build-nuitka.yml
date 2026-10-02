@@ -114,40 +114,41 @@ jobs:
           $exeName = 'Demo ' + (-join $c) + '.exe'   # Demo Запись экрана.exe
           $appTitle = (-join $c)                      # Запись экрана
 
-          # Собираем .iss скрипт
-          $iss = @"
-[Setup]
-AppName=$appTitle
-AppVersion=1.0.0
-AppPublisher=Evgeniy Mamonov
-DefaultDirName={autopf}\Zapis ekrana
-DefaultGroupName=$appTitle
-DisableProgramGroupPage=yes
-UninstallDisplayIcon={app}\$exeName
-OutputDir=dist
-OutputBaseFilename=Ustanovka Demo Zapis ekrana
-SetupIconFile=dist\Zapis ekrana\mamonov_icon.ico
-Compression=lzma2
-SolidCompression=yes
-WizardStyle=modern
-PrivilegesRequired=lowest
-
-[Languages]
-Name: "ru"; MessagesFile: "compiler:Languages\Russian.isl"
-
-[Tasks]
-Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
-
-[Files]
-Source: "dist\Zapis ekrana\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs
-
-[Icons]
-Name: "{group}\$appTitle"; Filename: "{app}\$exeName"
-Name: "{autodesktop}\$appTitle"; Filename: "{app}\$exeName"; Tasks: desktopicon
-
-[Run]
-Filename: "{app}\$exeName"; Description: "{cm:LaunchProgram,$appTitle}"; Flags: nowait postinstall skipifsilent
-"@
+          # Собираем .iss скрипт построчно (без here-string, чтобы не ломать YAML)
+          $lines = @(
+            '[Setup]',
+            "AppName=$appTitle",
+            'AppVersion=1.0.0',
+            'AppPublisher=Evgeniy Mamonov',
+            'DefaultDirName={autopf}\Zapis ekrana',
+            "DefaultGroupName=$appTitle",
+            'DisableProgramGroupPage=yes',
+            "UninstallDisplayIcon={app}\$exeName",
+            'OutputDir=dist',
+            'OutputBaseFilename=Ustanovka Demo Zapis ekrana',
+            'SetupIconFile=dist\Zapis ekrana\mamonov_icon.ico',
+            'Compression=lzma2',
+            'SolidCompression=yes',
+            'WizardStyle=modern',
+            'PrivilegesRequired=lowest',
+            '',
+            '[Languages]',
+            'Name: "ru"; MessagesFile: "compiler:Languages\Russian.isl"',
+            '',
+            '[Tasks]',
+            'Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"',
+            '',
+            '[Files]',
+            'Source: "dist\Zapis ekrana\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs',
+            '',
+            '[Icons]',
+            "Name: `"{group}\$appTitle`"; Filename: `"{app}\$exeName`"",
+            "Name: `"{autodesktop}\$appTitle`"; Filename: `"{app}\$exeName`"; Tasks: desktopicon",
+            '',
+            '[Run]',
+            "Filename: `"{app}\$exeName`"; Description: `"{cm:LaunchProgram,$appTitle}`"; Flags: nowait postinstall skipifsilent"
+          )
+          $iss = $lines -join "`r`n"
           $utf8bom = New-Object System.Text.UTF8Encoding $true
           [System.IO.File]::WriteAllText("$PWD\installer.iss", $iss, $utf8bom)
 
