@@ -1,5 +1,5 @@
 name: Build Windows EXE (Nuitka)
-# build trigger: 2026-10-02
+# build trigger: 2026-10-02b
 
 # Сборка .exe через Nuitka на Windows.
 # Nuitka компилирует Python в настоящий машинный код —
@@ -41,6 +41,14 @@ jobs:
             '--windows-console-mode=disable',
             '--enable-plugin=tk-inter',
             '--windows-icon-from-ico=mamonov_icon.ico',
+            # Metadata inside the .exe (empty fields look suspicious to AV)
+            '--company-name=Evgeniy Mamonov',
+            '--product-name=Zapis ekrana (Screen Recorder)',
+            '--file-description=Screen Recorder by Evgeniy Mamonov',
+            '--file-version=1.0.0.0',
+            '--product-version=1.0.0.0',
+            '--copyright=Copyright (c) Evgeniy Mamonov. All rights reserved.',
+            '--trademarks=Zapis ekrana (TM) Evgeniy Mamonov',
             '--include-data-files=updater.pyw=updater.pyw',
             '--include-data-files=mamonov_icon.ico=mamonov_icon.ico',
             '--output-filename=ScreenRecorder.exe',
