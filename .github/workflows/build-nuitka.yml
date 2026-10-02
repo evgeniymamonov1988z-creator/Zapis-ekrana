@@ -43,10 +43,17 @@ jobs:
             '--windows-icon-from-ico=mamonov_icon.ico',
             '--include-data-files=updater.pyw=updater.pyw',
             '--include-data-files=mamonov_icon.ico=mamonov_icon.ico',
-            '--include-package-data=sounddevice',
             '--output-filename=ScreenRecorder.exe',
             '--output-dir=dist'
           )
+          # sounddevice на Windows кладёт библиотеку PortAudio в пакет _sounddevice_data — включаем её
+          python -c "import importlib.util,sys; sys.exit(0 if importlib.util.find_spec('_sounddevice_data') else 1)"
+          if ($LASTEXITCODE -eq 0) {
+            Write-Host '[OK] PortAudio (_sounddevice_data) будет включён'
+            $args += '--include-package-data=_sounddevice_data'
+          } else {
+            Write-Host '[i] _sounddevice_data не найден — пропускаю'
+          }
           if (Test-Path 'bin\ffmpeg.exe') {
             Write-Host '[OK] ffmpeg.exe будет встроен в .exe'
             $args += '--include-data-dir=bin=bin'
