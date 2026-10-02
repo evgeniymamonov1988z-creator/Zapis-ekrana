@@ -48,6 +48,7 @@ jobs:
             '--file-version=1.0.0.0',
             '--product-version=1.0.0.0',
             '--copyright=Copyright (c) Evgeniy Mamonov. All rights reserved.',
+            '--trademarks=Zapis ekrana (TM) Evgeniy Mamonov',
             '--include-data-files=updater.pyw=updater.pyw',
             '--include-data-files=mamonov_icon.ico=mamonov_icon.ico',
             '--output-filename=ScreenRecorder.exe',
