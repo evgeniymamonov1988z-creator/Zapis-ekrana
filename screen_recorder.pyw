@@ -254,26 +254,27 @@ except ImportError as e:
 
 
 # ============================================================
-# ДЕМО-БЛОК v2.2 — встроен прямо в .exe
-# Общая буквенно-цифровая схема:
-#   буквы = вид программы (AE = Screen Recorder),
-#   цифры = номер копии.
-# Полный номер копии (например AE7) сервер вписывает при
-# скачивании маркером MAMONOV_ID: в конец .exe.
+# ЛИЦЕНЗИЯ / ДЕМО (v4 — привязка к номеру компьютера + журнал на сервере)
+#
+# Одна программа на всё (без отдельных сборок демо/полная):
+#
+#   1) Первый запуск — программа привязывается к НОМЕРУ этого компьютера
+#      (отпечаток _machine_id(), всегда один и тот же на этом ПК).
+#   2) Кнопка «Купить» сама добавляет этот номер в ссылку оплаты и
+#      передаёт его на сервер — покупателю ничего вводить не надо.
+#   3) После оплаты сервер ставит номеру в журнале отметку «оплачено».
+#   4) При запуске программа ищет локальную папку-галочку в профиле Windows:
+#        - папка есть и в ней наш номер  -> полная версия сразу (без инета);
+#        - папки нет -> спрашивает сервер по своему номеру; если в журнале
+#          «оплачено» -> создаёт папку -> становится полной;
+#        - иначе -> демо (3 дня), потом блокировка + кнопка «Купить».
+#
+# Номеров копий больше нет — всё завязано только на номер компьютера.
 # ============================================================
 
-PRODUCT_CODE = "AE"            # буквенный код Screen Recorder в общей схеме
-_ID_MARKER = b'MAMONOV_ID:'
-_COPY_NUMBER = "AE1"           # запасной номер для запуска из исходников
+PRODUCT_CODE = "AE"            # буквенный код Screen Recorder
 _DEMO_DIR = os.path.join(os.environ.get('APPDATA', os.path.expanduser('~')), 'MAMONOV')
 _SITE = "https://evgeniymamonov.com"
-_SERVER_URL = _SITE + "/api/ping.php"
-_COPY_RE = re.compile(r'^[A-Z]{2}\d+$')
-
-# Одна сборка для всех: номер копии вшивается при скачивании с сайта,
-# полную версию открывает оплата (на сайте — Prodamus, в магазине —
-# Digiseller сам вписывает оплаченный номер). Отдельной «магазинной»
-# версии больше нет.
 
 
 def _machine_id():
@@ -317,54 +318,16 @@ def _machine_id():
     return hashlib.sha256(raw.encode('utf-8', 'ignore')).hexdigest()[:16].upper()
 
 
-def _read_copy_number():
-    """«Свежий» номер копии из самого файла.
-    Номер больше НЕ пишется в имя файла, поэтому:
-    1) Основной способ — метка MAMONOV_ID: в конце .exe (вписывает сайт).
-    2) Запасной — номер в имени файла (старые скачанные копии).
-    3) Запуск из исходников — _COPY_NUMBER.
-    Постоянный номер компьютера и восстановление с сервера — в DemoBlock."""
-    try:
-        exe_path = sys.executable
-        if not exe_path or exe_path.endswith(('python.exe', 'pythonw.exe', 'python3.exe', 'python3w.exe')):
-            return _COPY_NUMBER
-
-        # 1) Метка в хвосте .exe — основной способ.
-        try:
-            with open(exe_path, 'rb') as f:
-                f.seek(-256, 2)
-                tail = f.read(256)
-            idx = tail.find(_ID_MARKER)
-            if idx != -1:
-                start = idx + len(_ID_MARKER)
-                raw = tail[start:start + 16].decode('ascii', errors='ignore')
-                m = re.match(r'[A-Za-z]{2}\d{1,6}', raw)
-                if m:
-                    return m.group(0).upper()
-        except Exception:
-            pass
-
-        # 2) Номер в имени файла — запасной (старые копии с номером в имени).
-        stem = os.path.splitext(os.path.basename(exe_path))[0]
-        m = re.search(r'([A-Za-z]{2}\d{1,6})$', stem)
-        if m:
-            return m.group(1).upper()
-
-        return _COPY_NUMBER
-    except Exception:
-        return _COPY_NUMBER
-
-
-COPY_NUMBER = _read_copy_number()
-
-
 class DemoBlock:
-    """Демо-блок в общей буквенно-цифровой схеме.
+    """Лицензия / демо — привязка к номеру компьютера + журнал на сервере.
 
-    code       — буквенный код вида программы (AE = Screen Recorder)
-    copy       — полный номер копии (AE7); читается из .exe
-    demo_days  — сколько дней длится демо
-    t          — функция перевода
+    Одна программа на всё. При запуске:
+      1) Есть локальная папка-галочка с нашим номером -> полная версия
+         сразу, без интернета.
+      2) Папки нет -> спрашиваем сервер по номеру этого компьютера;
+         если в журнале «оплачено» -> создаём папку -> полная.
+      3) Иначе -> демо 3 дня, потом блокировка + кнопка «Купить».
+    Кнопка «Купить» сама передаёт номер компьютера в ссылку оплаты.
     """
 
     def __init__(self, code=PRODUCT_CODE, copy=None, demo_days=3, t=None):
@@ -373,109 +336,92 @@ class DemoBlock:
         self._t = t
         self._bar_frame = None
 
-        self._demo_file = os.path.join(_DEMO_DIR, f'.demo_date_{self.code}')
-        self._license_file = os.path.join(_DEMO_DIR, f'.demo_licensed_{self.code}')
-        self._copy_file = os.path.join(_DEMO_DIR, f'.copy_{self.code}')
-        # Файл со статусом — в папке Mamonov video\bin рядом с рабочими файлами.
-        self._status_file = os.path.join(_bin_dir(), f'status_{self.code}.txt')
+        # Номер (отпечаток) этого компьютера — всегда один и тот же.
+        self.machine = _machine_id()
 
-        # Постоянный номер копии на этот компьютер (с восстановлением
-        # по отпечатку, если локальный файл с номером потерялся).
-        self.copy = copy or self._resolve_copy()
+        # Дата первого запуска демо — в скрытой папке %APPDATA%\\MAMONOV.
+        self._demo_file = os.path.join(_DEMO_DIR, f'.demo_date_{self.code}')
+        # Папка-галочка «оплачено» в профиле Windows (%APPDATA%\\MAMONOV).
+        # Внутри — файлик с номером компьютера (чтобы папку нельзя
+        # было просто скопировать на другой компьютер).
+        self._license_dirs = [
+            os.path.join(_DEMO_DIR, f'.license_{self.code}'),
+        ]
+        # Понятный файл со статусом — в рабочей папке bin.
+        self._status_file = os.path.join(_bin_dir(), f'status_{self.code}.txt')
 
         self.status, self.days_left = self._check()
         self.expired = (self.status == 'expired')
         self.licensed = (self.status == 'licensed')
 
-        # Записать понятный файл со статусом на компьютер.
         self._write_status()
 
-        self.ping()
+    # ---- Две локальные папки-галочки «оплачено» ----
 
-    # ---- Постоянный номер копии на компьютер ----
+    def _has_local_license(self):
+        """Папка есть и в ней номер именно этого компьютера."""
+        for d in self._license_dirs:
+            try:
+                with open(os.path.join(d, 'id.txt'), 'r', encoding='utf-8') as f:
+                    val = (f.read().strip() or '').upper()
+                if val != self.machine:
+                    return False
+            except Exception:
+                return False
+        return True
 
-    def _load_saved_copy(self):
-        """Сохранённый постоянный номер этого компьютера (или '')."""
-        try:
-            with open(self._copy_file, 'r', encoding='utf-8') as f:
-                val = (f.read().strip() or '').upper()
-            return val if _COPY_RE.match(val) else ''
-        except Exception:
-            return ''
+    def _create_local_license(self):
+        """Создать папку-галочку с номером компьютера внутри."""
+        for d in self._license_dirs:
+            try:
+                os.makedirs(d, exist_ok=True)
+                with open(os.path.join(d, 'id.txt'), 'w', encoding='utf-8') as f:
+                    f.write(self.machine)
+                if os.name == 'nt':
+                    try:
+                        import ctypes
+                        ctypes.windll.kernel32.SetFileAttributesW(d, 2)
+                    except Exception:
+                        pass
+            except Exception:
+                continue
 
-    def _save_copy(self, val):
-        """Закрепить номер за компьютером (скрытый файл)."""
-        try:
-            os.makedirs(_DEMO_DIR, exist_ok=True)
-            with open(self._copy_file, 'w', encoding='utf-8') as f:
-                f.write(val)
-            if os.name == 'nt':
-                try:
-                    ctypes.windll.kernel32.SetFileAttributesW(self._copy_file, 2)
-                except Exception:
-                    pass
-        except Exception:
-            pass
+    # ---- Сервер-журнал оплат ----
 
-    def _recover_copy(self):
-        """Спросить сервер, какой номер закреплён за этим компьютером.
-        Возвращает (copy, reached): copy — номер или '', reached — дошли ли
-        до сервера."""
+    def _server_says_paid(self):
+        """Спросить сервер: оплачен ли этот номер компьютера.
+        Вернёт True только если сервер явно ответил «оплачено».
+        Нет связи / ошибка -> False (остаёмся в демо, потом доспросим)."""
         try:
             import urllib.request
             import urllib.parse
             import json
-            params = urllib.parse.urlencode({'machine': _machine_id()})
-            url = f'{_SITE}/api/recover.php?{params}'
+            params = urllib.parse.urlencode({
+                'product': self.code,
+                'machine': self.machine,
+            })
+            url = f'{_SITE}/api/check.php?{params}'
             req = urllib.request.Request(url, method='GET')
-            req.add_header('User-Agent', 'MAMONOV-DemoBlock/2.2')
-            resp = urllib.request.urlopen(req, timeout=5)
+            req.add_header('User-Agent', 'MAMONOV-DemoBlock/4.0')
+            resp = urllib.request.urlopen(req, timeout=4)
             data = json.loads(resp.read().decode('utf-8', 'ignore') or '{}')
-            copy = (data.get('copy', '') or '').upper()
-            return (copy if _COPY_RE.match(copy) else ''), True
+            return bool(data.get('paid'))
         except Exception:
-            return '', False
-
-    def _resolve_copy(self):
-        """Постоянный номер копии для этого компьютера.
-
-        Порядок: сохранённый локально → восстановленный с сервера по отпечатку
-        → «свежий» из файла. Новый номер закрепляем только на действительно
-        новом компьютере (когда сервер ответил, что номера ещё нет).
-        """
-        saved = self._load_saved_copy()
-        if _COPY_RE.match(saved):
-            return saved
-        rec, reached = self._recover_copy()
-        if _COPY_RE.match(rec or ''):
-            self._save_copy(rec)
-            return rec
-        fresh = (COPY_NUMBER or '').upper()
-        if _COPY_RE.match(fresh):
-            # Закрепляем, только если сервер точно ответил (правда новый
-            # компьютер). Без связи — вернём номер на сеанс, но не закрепляем:
-            # как появится интернет, восстановим настоящий номер.
-            if reached:
-                self._save_copy(fresh)
-            return fresh
-        return _COPY_NUMBER
+            return False
 
     def _check(self):
-        # 1) Сначала смотрим сохранённый на компьютере статус (работает
-        # без интернета). Если копия уже отмечена оплаченной —
-        # остаёмся полной версией.
-        if self._read_status() == 'licensed':
+        # 1) Локальная галочка (папка) — работает без интернета.
+        if self._has_local_license():
             return ('licensed', 0)
+        # 2) Папки нет — спрашиваем сервер по номеру компьютера.
+        if self._server_says_paid():
+            self._create_local_license()
+            return ('licensed', 0)
+        # 3) Демо: 3 дня с первого запуска.
+        return self._check_demo()
 
-        if os.path.isfile(self._license_file):
-            try:
-                with open(self._license_file, 'r') as f:
-                    data = f.read().strip()
-                if data == 'ok':
-                    return ('licensed', 0)
-            except Exception:
-                pass
-
+    def _check_demo(self):
+        """Демо: 3 дня с первого запуска, потом блокировка."""
         try:
             os.makedirs(_DEMO_DIR, exist_ok=True)
             if os.path.isfile(self._demo_file):
@@ -497,45 +443,20 @@ class DemoBlock:
         except Exception:
             return ('ok', self.demo_days)
 
-    def mark_licensed(self):
-        try:
-            os.makedirs(_DEMO_DIR, exist_ok=True)
-            with open(self._license_file, 'w') as f:
-                f.write('ok')
-            self.status = 'licensed'
-            self.licensed = True
-            self.expired = False
-            self._write_status()
-        except Exception:
-            pass
-
-    def _read_status(self):
-        """Прочитать сохранённый статус с компьютера.
-        Возвращает 'licensed' / 'demo' / 'expired' или '' (файла нет)."""
-        try:
-            import json
-            with open(self._status_file, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-            return str(data.get('status', '') or '')
-        except Exception:
-            return ''
-
     def _write_status(self):
-        """Сохранить статус копии в понятный файл на компьютере.
-        Программа читает его при запуске (без интернета), а сервер
-        периодически уточняет его, когда есть связь."""
+        """Сохранить понятный файл со статусом (подсказка для человека)."""
         try:
             import json
             os.makedirs(os.path.dirname(self._status_file), exist_ok=True)
             if self.status == 'licensed':
-                code, text = 'licensed', 'Оплачено (полная версия)'
+                code, text = 'licensed', 'Полная версия (оплачено)'
             elif self.status == 'expired':
                 code, text = 'expired', 'Демо кончилось — не оплачено'
             else:
                 code, text = 'demo', f'Демо, осталось дней: {self.days_left}'
             data = {
                 'product': self.code,
-                'copy': self.copy,
+                'machine': self.machine,
                 'status': code,
                 'status_text': text,
                 'days_left': self.days_left,
@@ -543,53 +464,6 @@ class DemoBlock:
             }
             with open(self._status_file, 'w', encoding='utf-8') as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
-        except Exception:
-            pass
-
-    def ping(self):
-        try:
-            import urllib.request
-            import urllib.parse
-            params = urllib.parse.urlencode({
-                'product': self.code,
-                'instance': self.copy,
-                'machine': _machine_id(),
-                'status': 'demo' if self.status == 'ok' else self.status,
-                'days': self.days_left,
-            })
-            url = f'{_SERVER_URL}?{params}'
-            req = urllib.request.Request(url, method='GET')
-            req.add_header('User-Agent', 'MAMONOV-DemoBlock/2.2')
-            urllib.request.urlopen(req, timeout=3)
-        except Exception:
-            pass
-
-    def check_server_license(self, callback=None):
-        try:
-            import urllib.request
-            import urllib.parse
-            import json
-            params = urllib.parse.urlencode({
-                'product': self.code,
-                'instance': self.copy,
-                'machine': _machine_id(),
-            })
-            url = f'{_SITE}/api/check.php?{params}'
-            req = urllib.request.Request(url, method='GET')
-            req.add_header('User-Agent', 'MAMONOV-DemoBlock/2.2')
-            resp = urllib.request.urlopen(req, timeout=5)
-            data = json.loads(resp.read().decode('utf-8'))
-            # Сервер может прислать закреплённый/оплаченный номер копии —
-            # принимаем его и делаем своим («переименование» копии).
-            srv_copy = (data.get('copy', '') or '').upper()
-            if _COPY_RE.match(srv_copy) and srv_copy != self.copy:
-                self.copy = srv_copy
-                self._save_copy(srv_copy)
-                self._write_status()
-            if data.get('licensed'):
-                self.mark_licensed()
-                if callback:
-                    callback()
         except Exception:
             pass
 
@@ -609,7 +483,7 @@ class DemoBlock:
     def buy_url(self):
         t = self._t or (lambda k, *a: k)
         base = t('demo_buy_link')
-        return f'{base}?product={self.code}&instance={self.copy}'
+        return f'{base}?product={self.code}&machine={self.machine}'
 
     def open_buy_link(self, event=None):
         import webbrowser
@@ -1080,11 +954,6 @@ class ScreenRecorderApp:
         self._check_deps()
         self._update_ui()
 
-        # Спросить сервер, оплачена ли эта копия (и закрепить её за
-        # компьютером при первом запуске). Делаем в фоне, чтобы не
-        # тормозить открытие окна.
-        self.root.after(1200, self._start_license_check)
-
         self.root.after(200, self._hide_from_capture)
         self._hover_check_id = None
         self._schedule_hover_check()
@@ -1313,53 +1182,6 @@ class ScreenRecorderApp:
             self.btn_save.config(state="normal")
             self.cv_video.itemconfig(self.lamp_video, fill="#cc8800")
             self.cv_audio.itemconfig(self.lamp_audio, fill="#cc8800" if audio_ok else "#666666")
-
-    def _start_license_check(self):
-        # Фоновый запрос к серверу: оплачена ли копия.
-        # При первом запуске этот же запрос закрепляет копию за
-        # компьютером на сервере (check.php -> machine_bind).
-        import threading
-
-        def _worker():
-            try:
-                self.demo.check_server_license(
-                    callback=lambda: self.root.after(0, self._on_license_confirmed))
-            except Exception:
-                pass
-
-        threading.Thread(target=_worker, daemon=True).start()
-
-        # Периодически сверяться с сервером (раз в 30 минут),
-        # пока программа открыта и есть интернет.
-        try:
-            if self.root.winfo_exists():
-                self.root.after(30 * 60 * 1000, self._start_license_check)
-        except Exception:
-            pass
-
-    def _on_license_confirmed(self):
-        # Сервер подтвердил оплату — снимаем демо на лету:
-        # убираем демо-строку и включаем кнопки.
-        try:
-            if not self.root.winfo_exists():
-                return
-        except Exception:
-            return
-        try:
-            bar = getattr(self.demo, '_bar_frame', None)
-            if bar is not None:
-                bar.destroy()
-                self.demo._bar_frame = None
-        except Exception:
-            pass
-        try:
-            self.root.title(t('title'))
-        except Exception:
-            pass
-        try:
-            self._update_ui()
-        except Exception:
-            pass
 
     def _hide_from_capture(self):
         # Прячем окно программы от записи экрана — ВСЕГДА, как в проверенной
