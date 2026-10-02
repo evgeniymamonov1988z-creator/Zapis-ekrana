@@ -66,6 +66,14 @@ jobs:
             Write-Host ('[OK] dist\' + $name)
           }
 
+      - name: Sign EXE with own certificate
+        shell: pwsh
+        run: |
+          $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject "CN=Evgeniy Mamonov" -KeyUsage DigitalSignature -FriendlyName "Mamonov Code Signing" -CertStoreLocation Cert:\CurrentUser\My -NotAfter (Get-Date).AddYears(10)
+          $exe = Get-ChildItem dist\*.exe | Select-Object -First 1
+          $sig = Set-AuthenticodeSignature -FilePath $exe.FullName -Certificate $cert -TimestampServer "http://timestamp.digicert.com"
+          Write-Host ('[OK] Signed: ' + $exe.FullName + ' -> ' + $sig.Status)
+
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
