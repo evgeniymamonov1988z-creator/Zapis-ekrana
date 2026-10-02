@@ -5,9 +5,10 @@ name: Build Windows EXE
 # and publishes it to a rolling GitHub Release (tag: auto-build) so the
 # website can pull the latest build automatically.
 
+# OTKLYUCHENO: staraya sborka cherez PyInstaller (bez podpisi).
+# Osnovnaya sborka teper' - build-nuitka.yml (Nuitka + podpis' + novyy znachok).
+# Zapuskaetsya tol'ko vruchnuyu, avtomaticheski bol'she ne rabotaet.
 on:
-  push:
-    branches: [ master, main ]
   workflow_dispatch:
 
 # Needed so the built-in GITHUB_TOKEN can create/update the release.
