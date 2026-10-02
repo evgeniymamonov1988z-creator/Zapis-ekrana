@@ -409,9 +409,50 @@ class DemoBlock:
         except Exception:
             return False
 
+    # ---- Магазинная сборка (товар на Digiseller) ----
+
+    def _is_store_edition(self):
+        """Это «магазинная» сборка? Признак — файл-метка рядом с программой.
+        Такую сборку кладут в «содержимое товара» на Digiseller; её
+        получают только оплатившие. Обычная сборка с сайта метки не имеет."""
+        try:
+            for name in ('edition_store.flag', 'edition_store.txt'):
+                if os.path.isfile(os.path.join(APP_DIR, name)):
+                    return True
+        except Exception:
+            pass
+        return False
+
+    def _store_activate(self):
+        """Магазинная сборка: сама говорит серверу «этот компьютер оплачен».
+        Зовёт /api/activate.php?code=AE&machine=<номер>. Вернёт True только
+        при явном ответе сервера «licensed». Нет связи -> False (попробуем
+        при следующем запуске)."""
+        try:
+            import urllib.request
+            import urllib.parse
+            import json
+            params = urllib.parse.urlencode({
+                'code': self.code,
+                'machine': self.machine,
+            })
+            url = f'{_SITE}/api/activate.php?{params}'
+            req = urllib.request.Request(url, method='GET')
+            req.add_header('User-Agent', 'MAMONOV-DemoBlock/4.0')
+            resp = urllib.request.urlopen(req, timeout=5)
+            data = json.loads(resp.read().decode('utf-8', 'ignore') or '{}')
+            return bool(data.get('licensed'))
+        except Exception:
+            return False
+
     def _check(self):
         # 1) Локальная галочка (папка) — работает без интернета.
         if self._has_local_license():
+            return ('licensed', 0)
+        # 1b) Магазинная сборка (куплена на Digiseller): при первом запуске
+        #     сама активирует этот компьютер на сервере -> полная версия.
+        if self._is_store_edition() and self._store_activate():
+            self._create_local_license()
             return ('licensed', 0)
         # 2) Папки нет — спрашиваем сервер по номеру компьютера.
         if self._server_says_paid():
