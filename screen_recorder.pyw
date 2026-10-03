@@ -529,6 +529,15 @@ class DemoBlock:
     def open_buy_link(self, event=None):
         import webbrowser
         webbrowser.open(self.buy_url())
+        # Человек открыл страницу оплаты -> сообщаем программе, чтобы она
+        # на время включила частые проверки сервера и разблокировалась
+        # сразу после оплаты, без перезапуска.
+        cb = getattr(self, 'on_buy_click', None)
+        if cb:
+            try:
+                cb()
+            except Exception:
+                pass
 
     def build_bar(self, parent, t=None):
         if t:
@@ -958,6 +967,13 @@ class ScreenRecorderApp:
 
         # Демо-блок
         self.demo = DemoBlock(code="AE", demo_days=3, t=t)
+        # Моментальная разблокировка после оплаты (без перезапуска): как
+        # только человек откроет страницу оплаты, включаем на 10 минут
+        # частые проверки сервера (раз в 5 сек); потом они сами гаснут —
+        # чтобы не нагружать хостинг.
+        self.demo.on_buy_click = self._start_fast_license_poll
+        self._fast_poll_active = False
+        self._fast_poll_until = 0.0
         if self.demo.expired:
             self.root.title(t('demo_title'))
 
@@ -1223,6 +1239,83 @@ class ScreenRecorderApp:
             self.btn_save.config(state="normal")
             self.cv_video.itemconfig(self.lamp_video, fill="#cc8800")
             self.cv_audio.itemconfig(self.lamp_audio, fill="#cc8800" if audio_ok else "#666666")
+
+    # ============================================================
+    # Моментальная разблокировка после оплаты (без перезапуска)
+    # ============================================================
+    def _start_fast_license_poll(self):
+        """Человек открыл страницу оплаты -> включаем на 10 минут частые
+        проверки сервера. Если уже полная версия — ничего не делаем."""
+        if self.demo.licensed:
+            return
+        self._fast_poll_until = time.time() + 10 * 60  # 10 минут
+        if not self._fast_poll_active:
+            self._fast_poll_active = True
+            self._fast_poll_tick()
+
+    def _fast_poll_tick(self):
+        """Раз в 5 секунд спрашиваем сервер (в отдельном потоке, чтобы окно
+        не подвисало). По истечении 10 минут сами выключаемся."""
+        if self.demo.licensed:
+            self._fast_poll_active = False
+            return
+        if time.time() > self._fast_poll_until:
+            self._fast_poll_active = False
+            return
+
+        def _ask():
+            paid = False
+            try:
+                paid = self.demo._server_says_paid()
+            except Exception:
+                paid = False
+            if paid:
+                try:
+                    self.root.after(0, self._on_license_confirmed)
+                except Exception:
+                    pass
+
+        try:
+            import threading
+            threading.Thread(target=_ask, daemon=True).start()
+        except Exception:
+            pass
+
+        self.root.after(5000, self._fast_poll_tick)
+
+    def _on_license_confirmed(self):
+        """Сервер подтвердил оплату -> снимаем демо прямо на лету:
+        ставим локальную галочку «оплачено», убираем жёлтую полосу,
+        включаем кнопки и возвращаем обычный заголовок окна."""
+        self._fast_poll_active = False
+        if self.demo.licensed:
+            return
+        # Запомнить оплату локально + перевести в полную версию.
+        try:
+            self.demo._create_local_license()
+        except Exception:
+            pass
+        self.demo.status = 'licensed'
+        self.demo.days_left = 0
+        self.demo.expired = False
+        self.demo.licensed = True
+        try:
+            self.demo._write_status()
+        except Exception:
+            pass
+        # Убрать жёлтую демо-полосу с кнопкой «Разблокировать».
+        try:
+            if self.demo._bar_frame is not None:
+                self.demo._bar_frame.destroy()
+                self.demo._bar_frame = None
+        except Exception:
+            pass
+        # Вернуть обычный заголовок и включить кнопки.
+        try:
+            self.root.title(t('title'))
+        except Exception:
+            pass
+        self._update_ui()
 
     def _hide_from_capture(self):
         # Прячем окно программы от записи экрана — ВСЕГДА, как в проверенной
