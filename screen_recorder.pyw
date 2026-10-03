@@ -411,23 +411,52 @@ class DemoBlock:
 
     # ---- Магазинная сборка (товар на Digiseller) ----
 
-    def _is_store_edition(self):
-        """Это «магазинная» сборка? Признак — файл-метка рядом с программой.
-        Такую сборку кладут в «содержимое товара» на Digiseller; её
-        получают только оплатившие. Обычная сборка с сайта метки не имеет."""
+    def _license_key_path(self):
+        """Где лежит файл license.key (одноразовый код из оплаченного
+        архива). Ищем рядом с программой и в текущей папке."""
+        names = ('license.key', 'License.key', 'LICENSE.KEY')
+        dirs = [APP_DIR]
         try:
-            for name in ('edition_store.flag', 'edition_store.txt'):
-                if os.path.isfile(os.path.join(APP_DIR, name)):
-                    return True
+            dirs.append(os.getcwd())
         except Exception:
             pass
-        return False
+        for d in dirs:
+            for name in names:
+                p = os.path.join(d, name)
+                if os.path.isfile(p):
+                    return p
+        return None
+
+    def _read_license_token(self):
+        """Прочитать одноразовый код из license.key (hex, 32..64 символа)
+        или '' если файла нет / код не найден."""
+        import re
+        p = self._license_key_path()
+        if not p:
+            return ''
+        try:
+            with open(p, 'r', encoding='utf-8', errors='ignore') as f:
+                raw = f.read()
+        except Exception:
+            return ''
+        m = re.search(r'[a-fA-F0-9]{32,64}', raw or '')
+        return m.group(0).lower() if m else ''
+
+    def _is_store_edition(self):
+        """Это «магазинная» сборка (куплена на Digiseller)? Признак — рядом
+        с программой лежит файл license.key с одноразовым кодом.
+        Этот архив выдаёт только оплатившим (store.php)."""
+        return self._read_license_token() != ''
 
     def _store_activate(self):
-        """Магазинная сборка: сама говорит серверу «этот компьютер оплачен».
-        Зовёт /api/activate.php?code=AE&machine=<номер>. Вернёт True только
-        при явном ответе сервера «licensed». Нет связи -> False (попробуем
-        при следующем запуске)."""
+        """Магазинная сборка: при первом запуске сама говорит серверу
+        «этот компьютер оплачен», передавая одноразовый код из license.key.
+        Зовёт /api/activate.php?code=AE&machine=<номер>&token=<код>.
+        Вернёт True только при явном ответе сервера «licensed».
+        Без кода или без связи -> False."""
+        token = self._read_license_token()
+        if not token:
+            return False
         try:
             import urllib.request
             import urllib.parse
@@ -435,13 +464,23 @@ class DemoBlock:
             params = urllib.parse.urlencode({
                 'code': self.code,
                 'machine': self.machine,
+                'token': token,
             })
             url = f'{_SITE}/api/activate.php?{params}'
             req = urllib.request.Request(url, method='GET')
             req.add_header('User-Agent', 'MAMONOV-DemoBlock/4.0')
             resp = urllib.request.urlopen(req, timeout=5)
             data = json.loads(resp.read().decode('utf-8', 'ignore') or '{}')
-            return bool(data.get('licensed'))
+            ok = bool(data.get('licensed'))
+            if ok:
+                # Код погашён и компьютер привязан — license.key больше не нужен.
+                try:
+                    p = self._license_key_path()
+                    if p:
+                        os.remove(p)
+                except Exception:
+                    pass
+            return ok
         except Exception:
             return False
 
