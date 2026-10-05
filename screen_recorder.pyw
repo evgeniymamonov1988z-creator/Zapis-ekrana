@@ -318,6 +318,17 @@ def _machine_id():
     return hashlib.sha256(raw.encode('utf-8', 'ignore')).hexdigest()[:16].upper()
 
 
+def _is_msstore_edition():
+    """Microsoft Store-сборка: рядом с .exe лежит edition_store.flag=msstore.
+    В этом случае DemoBlock пропускается — Store сам управляет trial/лицензией."""
+    flag = os.path.join(APP_DIR, 'edition_store.flag')
+    try:
+        with open(flag, 'r') as f:
+            return f.read().strip().lower() == 'msstore'
+    except Exception:
+        return False
+
+
 class DemoBlock:
     """Лицензия / демо — привязка к номеру компьютера + журнал на сервере.
 
@@ -1004,8 +1015,15 @@ class ScreenRecorderApp:
         self.root.configure(bg="#2b2b2b")
         self.root.attributes("-topmost", True)
 
-        # Демо-блок
-        self.demo = DemoBlock(code="AE", demo_days=3, t=t)
+        # Демо-блок (для Microsoft Store — пропускается, Store сам делает trial)
+        if _is_msstore_edition():
+            self.demo = DemoBlock(code="AE", demo_days=3, t=t)
+            self.demo.status = 'licensed'
+            self.demo.days_left = 0
+            self.demo.expired = False
+            self.demo.licensed = True
+        else:
+            self.demo = DemoBlock(code="AE", demo_days=3, t=t)
         # Моментальная разблокировка после оплаты (без перезапуска): как
         # только человек откроет страницу оплаты, включаем на 10 минут
         # частые проверки сервера (раз в 5 сек); потом они сами гаснут —
