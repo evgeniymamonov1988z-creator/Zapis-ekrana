@@ -1,10 +1,10 @@
 name: Build MSIX (Microsoft Store)
 # Сборка MSIX-пакета для публикации в Microsoft Store.
 #
-# Store-сборка: без DemoBlock, без кнопки «Купить».
-# Microsoft Store сам управляет trial/лицензией (галочка Free Trial).
-# Маркер edition_store.flag=msstore — программа при старте видит его
-# и пропускает DemoBlock, работая как полная версия.
+# Store-сборка с 3-дневным ДЕМО (Вариант Б).
+# Пометка edition_store.flag НЕ создаётся — значит приложение запускает
+# встроенный DemoBlock (3 дня). Полную версию клиент оплачивает на сайте
+# evgeniymamonov.com.
 #
 # Запускается вручную (кнопка Run workflow).
 
@@ -33,12 +33,6 @@ jobs:
           pip install nuitka==2.4.8
           pip install -r requirements.txt
 
-      - name: Create Store marker
-        shell: pwsh
-        run: |
-          Set-Content -Path 'edition_store.flag' -Value 'msstore' -NoNewline
-          Write-Host '[OK] edition_store.flag = msstore'
-
       - name: Build EXE with Nuitka
         shell: pwsh
         run: |
@@ -57,7 +51,6 @@ jobs:
             '--trademarks=Zapis ekrana (TM) Evgeniy Mamonov',
             '--include-data-files=updater.pyw=updater.pyw',
             '--include-data-files=mamonov_icon.ico=mamonov_icon.ico',
-            '--include-data-files=edition_store.flag=edition_store.flag',
             '--output-filename=ScreenRecorder.exe',
             '--output-dir=dist'
           )
