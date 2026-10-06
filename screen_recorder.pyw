@@ -86,7 +86,7 @@ T = {
         'demo_days_2': 'ДЕМО — 2 дня',
         'demo_days_1': 'ДЕМО — 1 день',
         'demo_expired': 'Демо кончилось',
-        'demo_buy': 'Разблокировать за 299 ₽',
+        'demo_buy': 'Полная версия на сайте',
         'demo_buy_link': 'https://evgeniymamonov.com/buy.html',
         'copy_label': '№ копии: {}',
         # Первый запуск — скачивание ffmpeg
@@ -135,7 +135,7 @@ T = {
         'demo_days_2': 'DEMO — 2 days',
         'demo_days_1': 'DEMO — 1 day',
         'demo_expired': 'Demo expired',
-        'demo_buy': 'Unlock for $9.99',
+        'demo_buy': 'Get the full version',
         'demo_buy_link': 'https://evgeniymamonov.com/en/buy.html',
         'copy_label': 'Copy #: {}',
         # First run — ffmpeg download
