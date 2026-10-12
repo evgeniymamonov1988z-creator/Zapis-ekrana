@@ -89,6 +89,11 @@ jobs:
           Copy-Item -Path "$srcDir\*" -Destination $msixDir -Recurse -Force
           Write-Host '[OK] Файлы скопированы в' $msixDir
 
+          # Метка демо-версии: "demo" -> приложение игнорирует "msstore"
+          # и работает как пробная версия 3 дня с кнопкой на сайте.
+          Set-Content -Path (Join-Path $msixDir 'edition_store.flag') -Value 'demo' -NoNewline -Encoding ascii
+          Write-Host '[OK] edition_store.flag = demo (пробная версия 3 дня)'
+
           # Создаём папку Assets для иконок MSIX
           $assetsDir = Join-Path $msixDir 'Assets'
           New-Item -ItemType Directory -Path $assetsDir -Force | Out-Null
