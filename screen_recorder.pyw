@@ -399,10 +399,12 @@ class DemoBlock:
 
     # ---- Сервер-журнал оплат ----
 
-    def _server_says_paid(self):
-        """Спросить сервер: оплачен ли этот номер компьютера.
-        Вернёт True только если сервер явно ответил «оплачено».
-        Нет связи / ошибка -> False (остаёмся в демо, потом доспросим)."""
+    def _ask_server(self):
+        """Спросить сервер про этот номер компьютера.
+
+        Возвращает словарь ответа (paid / days_left / trial_expired) или
+        None, если нет связи / ошибка (= «нет интернета»).
+        Сервер сам при первом обращении запоминает дату первого запуска."""
         try:
             import urllib.request
             import urllib.parse
@@ -414,11 +416,11 @@ class DemoBlock:
             url = f'{_SITE}/api/check.php?{params}'
             req = urllib.request.Request(url, method='GET')
             req.add_header('User-Agent', 'MAMONOV-DemoBlock/4.0')
-            resp = urllib.request.urlopen(req, timeout=4)
+            resp = urllib.request.urlopen(req, timeout=5)
             data = json.loads(resp.read().decode('utf-8', 'ignore') or '{}')
-            return bool(data.get('paid'))
+            return data if isinstance(data, dict) else {}
         except Exception:
-            return False
+            return None
 
     # ---- Магазинная сборка (товар на Digiseller) ----
 
@@ -496,43 +498,25 @@ class DemoBlock:
             return False
 
     def _check(self):
-        # 1) Локальная галочка (папка) — работает без интернета.
-        if self._has_local_license():
-            return ('licensed', 0)
-        # 1b) Магазинная сборка (куплена на Digiseller): при первом запуске
-        #     сама активирует этот компьютер на сервере -> полная версия.
+        # 1) Магазинная сборка (куплена на Digiseller): при первом запуске
+        #    сама активирует этот компьютер на сервере -> полная версия.
         if self._is_store_edition() and self._store_activate():
-            self._create_local_license()
             return ('licensed', 0)
-        # 2) Папки нет — спрашиваем сервер по номеру компьютера.
-        if self._server_says_paid():
-            self._create_local_license()
+        # 2) Спрашиваем сервер по номеру компьютера (сервер сам ведёт
+        #    дату первого запуска и считает дни демо).
+        data = self._ask_server()
+        if data is None:
+            # Нет интернета — не мешаем работать (полная версия).
             return ('licensed', 0)
-        # 3) Демо: 3 дня с первого запуска.
-        return self._check_demo()
-
-    def _check_demo(self):
-        """Демо: 3 дня с первого запуска, потом блокировка."""
+        if bool(data.get('paid')):
+            return ('licensed', 0)
         try:
-            os.makedirs(_DEMO_DIR, exist_ok=True)
-            if os.path.isfile(self._demo_file):
-                with open(self._demo_file, 'r') as f:
-                    first_run = f.read().strip()
-                first_date = datetime.datetime.strptime(first_run, '%Y-%m-%d').date()
-            else:
-                today = datetime.date.today()
-                with open(self._demo_file, 'w') as f:
-                    f.write(today.strftime('%Y-%m-%d'))
-                first_date = today
-
-            days_passed = (datetime.date.today() - first_date).days
-            days_left = self.demo_days - days_passed
-
-            if days_left <= 0:
-                return ('expired', 0)
-            return ('ok', days_left)
+            days_left = int(data.get('days_left', 0))
         except Exception:
-            return ('ok', self.demo_days)
+            days_left = 0
+        if days_left > 0:
+            return ('ok', days_left)
+        return ('expired', 0)
 
     def _write_status(self):
         """Сохранить понятный файл со статусом (подсказка для человека)."""
