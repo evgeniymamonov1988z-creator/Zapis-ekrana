@@ -43,15 +43,15 @@ jobs:
             '--windows-icon-from-ico=mamonov_icon.ico',
             # Metadata inside the .exe (empty fields look suspicious to AV)
             '--company-name=Evgeniy Mamonov',
-            '--product-name=Zapis ekrana (Screen Recorder)',
-            '--file-description=Screen Recorder by Evgeniy Mamonov',
+            '--product-name=Ekrannik (Screen Recorder)',
+            '--file-description=Ekrannik - Screen Recorder by Evgeniy Mamonov',
             '--file-version=1.0.0.0',
             '--product-version=1.0.0.0',
             '--copyright=Copyright (c) Evgeniy Mamonov. All rights reserved.',
-            '--trademarks=Zapis ekrana (TM) Evgeniy Mamonov',
+            '--trademarks=Ekrannik (TM) Evgeniy Mamonov',
             '--include-data-files=updater.pyw=updater.pyw',
             '--include-data-files=mamonov_icon.ico=mamonov_icon.ico',
-            '--output-filename=ScreenRecorder.exe',
+            '--output-filename=Ekrannik.exe',
             '--output-dir=dist'
           )
           # sounddevice на Windows кладёт библиотеку PortAudio в пакет _sounddevice_data — включаем её
@@ -80,14 +80,10 @@ jobs:
             Get-ChildItem dist | Select-Object -First 30
             exit 1
           }
-          # Переименуем папку в понятное имя
-          Rename-Item -LiteralPath $distDir -NewName 'Zapis ekrana' -Force
-          $newDir = 'dist\Zapis ekrana'
-          # Переименуем главный .exe в русское демо-имя
-          $c = [char[]](0x0417,0x0430,0x043F,0x0438,0x0441,0x044C,0x20,0x044D,0x043A,0x0440,0x0430,0x043D,0x0430)
-          $name = 'Demo ' + (-join $c) + '.exe'
-          Rename-Item -LiteralPath (Join-Path $newDir 'ScreenRecorder.exe') -NewName $name -Force
-          Write-Host ('[OK] ' + $newDir + '\' + $name)
+          # Переименуем папку в имя бренда
+          Rename-Item -LiteralPath $distDir -NewName 'Ekrannik' -Force
+          $newDir = 'dist\Ekrannik'
+          Write-Host ('[OK] ' + $newDir + '\Ekrannik.exe')
 
       - name: Sign main EXE with own certificate
         shell: pwsh
@@ -99,16 +95,15 @@ jobs:
           $pfxPath = Join-Path $env:RUNNER_TEMP 'sign.pfx'
           [IO.File]::WriteAllBytes($pfxPath, $pfxBytes)
           $cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($pfxPath, $env:SIGN_PFX_PASSWORD, 'Exportable,PersistKeySet')
-          $exe = Get-ChildItem 'dist\Zapis ekrana\*.exe' | Select-Object -First 1
+          $exe = Get-ChildItem 'dist\Ekrannik\*.exe' | Select-Object -First 1
           $sig = Set-AuthenticodeSignature -FilePath $exe.FullName -Certificate $cert -TimestampServer "http://timestamp.digicert.com"
           Write-Host ('[OK] Signed: ' + $exe.FullName + ' -> ' + $sig.Status)
 
       - name: Package folder into ZIP
         shell: pwsh
         run: |
-          $c = [char[]](0x0417,0x0430,0x043F,0x0438,0x0441,0x044C,0x20,0x044D,0x043A,0x0440,0x0430,0x043D,0x0430)
-          $zip = 'dist\Demo ' + (-join $c) + '.zip'
-          Compress-Archive -Path 'dist\Zapis ekrana' -DestinationPath $zip -Force
+          $zip = 'dist\Ekrannik.zip'
+          Compress-Archive -Path 'dist\Ekrannik' -DestinationPath $zip -Force
           Write-Host ('[OK] ' + $zip)
           Get-ChildItem dist\*.zip | ForEach-Object { Write-Host ('   ' + $_.Name + '  ' + [math]::Round($_.Length/1MB,2) + ' MB') }
 
@@ -116,9 +111,8 @@ jobs:
         shell: pwsh
         run: |
           # Главный exe с кириллическим именем (строим из кодов символов)
-          $c = [char[]](0x0417,0x0430,0x043F,0x0438,0x0441,0x044C,0x20,0x044D,0x043A,0x0440,0x0430,0x043D,0x0430)
-          $exeName = 'Demo ' + (-join $c) + '.exe'   # Demo Запись экрана.exe
-          $appTitle = (-join $c)                      # Запись экрана
+          $exeName = 'Ekrannik.exe'
+          $appTitle = 'Ekrannik'
 
           # Собираем .iss скрипт построчно (без here-string, чтобы не ломать YAML)
           $lines = @(
@@ -126,13 +120,13 @@ jobs:
             "AppName=$appTitle",
             'AppVersion=1.0.0',
             'AppPublisher=Evgeniy Mamonov',
-            'DefaultDirName={autopf}\Zapis ekrana',
+            'DefaultDirName={autopf}\Ekrannik',
             "DefaultGroupName=$appTitle",
             'DisableProgramGroupPage=yes',
             "UninstallDisplayIcon={app}\$exeName",
             'OutputDir=dist',
-            'OutputBaseFilename=Ustanovka Demo Zapis ekrana',
-            'SetupIconFile=dist\Zapis ekrana\mamonov_icon.ico',
+            'OutputBaseFilename=Ekrannik-Setup',
+            'SetupIconFile=dist\Ekrannik\mamonov_icon.ico',
             'Compression=lzma2',
             'SolidCompression=yes',
             'WizardStyle=modern',
@@ -146,7 +140,7 @@ jobs:
             'Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"',
             '',
             '[Files]',
-            'Source: "dist\Zapis ekrana\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs',
+            'Source: "dist\Ekrannik\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs',
             '',
             '[Icons]',
             "Name: `"{group}\$appTitle`"; Filename: `"{app}\$exeName`"",
@@ -183,7 +177,7 @@ jobs:
           $pfxPath = Join-Path $env:RUNNER_TEMP 'sign.pfx'
           [IO.File]::WriteAllBytes($pfxPath, $pfxBytes)
           $cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($pfxPath, $env:SIGN_PFX_PASSWORD, 'Exportable,PersistKeySet')
-          $exe = Get-ChildItem 'dist\Ustanovka*.exe' | Select-Object -First 1
+          $exe = Get-ChildItem 'dist\Ekrannik-Setup*.exe' | Select-Object -First 1
           $sig = Set-AuthenticodeSignature -FilePath $exe.FullName -Certificate $cert -TimestampServer "http://timestamp.digicert.com"
           Write-Host ('[OK] Signed: ' + $exe.FullName + ' -> ' + $sig.Status)
 
@@ -193,7 +187,7 @@ jobs:
           name: ScreenRecorder-Nuitka-Folder
           path: |
             dist/*.zip
-            dist/Ustanovka*.exe
+            dist/Ekrannik-Setup*.exe
           if-no-files-found: error
 
       - name: Publish to rolling release (auto-build-nuitka)
@@ -204,5 +198,5 @@ jobs:
           body: "\u0410\u0432\u0442\u043e\u043c\u0430\u0442\u0438\u0447\u0435\u0441\u043a\u0430\u044f \u0441\u0431\u043e\u0440\u043a\u0430 \u0447\u0435\u0440\u0435\u0437 Nuitka. \u041e\u0431\u043d\u043e\u0432\u043b\u044f\u0435\u0442\u0441\u044f \u043f\u0440\u0438 \u043a\u0430\u0436\u0434\u043e\u0439 \u0441\u0431\u043e\u0440\u043a\u0435."
           files: |
             dist/*.zip
-            dist/Ustanovka*.exe
+            dist/Ekrannik-Setup*.exe
           make_latest: true
