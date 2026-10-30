@@ -100,7 +100,17 @@ jobs:
           $sig = Set-AuthenticodeSignature -FilePath $exe.FullName -Certificate $cert -TimestampServer "http://timestamp.digicert.com"
           Write-Host ('[OK] Signed: ' + $exe.FullName + ' -> ' + $sig.Status)
 
-      - name: Package folder into ZIP
+      - name: Make FULL package (secret link) and mark folder as DEMO
+        shell: pwsh
+        run: |
+          # ПОЛНАЯ версия (для секретной ссылки покупателя): папка БЕЗ demo.flag.
+          Compress-Archive -Path 'dist\Ekrannik' -DestinationPath 'dist\Ekrannik-Full.zip' -Force
+          Write-Host '[OK] dist\Ekrannik-Full.zip (полная версия, без ограничений)'
+          # Делаем папку ДЕМО: кладём demo.flag рядом с .exe → демо 3 дня.
+          New-Item -ItemType File -Path 'dist\Ekrannik\demo.flag' -Force | Out-Null
+          Write-Host '[OK] demo.flag добавлен — установщик и zip ниже = ДЕМО'
+
+      - name: Package DEMO folder into ZIP
         shell: pwsh
         run: |
           $zip = 'dist\Ekrannik.zip'

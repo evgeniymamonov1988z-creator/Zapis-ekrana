@@ -258,102 +258,40 @@ except ImportError as e:
 
 
 # ============================================================
-# ЛИЦЕНЗИЯ / ДЕМО (v4 — привязка к номеру компьютера + журнал на сервере)
+# ДЕМО (v5 — простой локальный таймер, без интернета и привязки)
 #
-# Одна программа на всё (без отдельных сборок демо/полная):
+# Две сборки из одного кода:
 #
-#   1) Первый запуск — программа привязывается к НОМЕРУ этого компьютера
-#      (отпечаток _machine_id(), всегда один и тот же на этом ПК).
-#   2) Кнопка «Купить» сама добавляет этот номер в ссылку оплаты и
-#      передаёт его на сервер — покупателю ничего вводить не надо.
-#   3) После оплаты сервер ставит номеру в журнале отметку «оплачено».
-#   4) При запуске программа ищет локальную папку-галочку в профиле Windows:
-#        - папка есть и в ней наш номер  -> полная версия сразу (без инета);
-#        - папки нет -> спрашивает сервер по своему номеру; если в журнале
-#          «оплачено» -> создаёт папку -> становится полной;
-#        - иначе -> демо (3 дня), потом блокировка + кнопка «Купить».
+#   • ПОЛНАЯ версия — рядом с .exe НЕТ файла demo.flag.
+#     Работает всегда, без ограничений (раздаётся по секретной ссылке).
+#   • ДЕМО версия — рядом с .exe лежит файл demo.flag.
+#     Работает 3 дня с первого запуска, потом блокирует кнопки
+#     и показывает ссылку «Полная версия на сайте».
 #
-# Номеров копий больше нет — всё завязано только на номер компьютера.
+# Дата первого запуска хранится в двух местах (реестр Windows
+# + скрытый файл в %APPDATA%\\MAMONOV); берётся самая ранняя из двух,
+# чтобы перезапись одного из них не сбрасывала срок.
+# Сервера, лицензий и отпечатка компьютера больше нет.
 # ============================================================
 
 PRODUCT_CODE = "AE"            # буквенный код Screen Recorder
 _DEMO_DIR = os.path.join(os.environ.get('APPDATA', os.path.expanduser('~')), 'MAMONOV')
-_SITE = "https://evgeniymamonov.com"
 
 
-def _machine_id():
-    """Устойчивый «отпечаток» этого компьютера (16 hex-символов).
-
-    Берётся ТОЛЬКО из MachineGuid Windows (ID установки системы, не меняется).
-    Результат один раз сохраняется в %APPDATA%\\MAMONOV\\machine.id и далее
-    всегда читается из файла — поэтому отпечаток не «плавает» между запусками.
-    MAC-адрес и имя компьютера НЕ используются (они меняются от сети/настроек).
-    """
-    import hashlib
-    cache = os.path.join(_DEMO_DIR, 'machine.id')
-    # 1) уже сохранён — берём из файла (гарантированно тот же номер)
+def _is_demo_edition():
+    """Демо-сборка? Признак — рядом с программой лежит файл demo.flag.
+    Если файла нет — это полная версия без ограничений."""
     try:
-        with open(cache, 'r', encoding='utf-8') as f:
-            saved = f.read().strip().upper()
-        if len(saved) == 16 and all(c in '0123456789ABCDEF' for c in saved):
-            return saved
-    except Exception:
-        pass
-    # 2) первый раз — вычисляем из MachineGuid (стабильный ид Windows)
-    guid = ''
-    if os.name == 'nt':
-        try:
-            import winreg
-            key = winreg.OpenKey(
-                winreg.HKEY_LOCAL_MACHINE,
-                r'SOFTWARE\Microsoft\Cryptography', 0,
-                winreg.KEY_READ | winreg.KEY_WOW64_64KEY)
-            try:
-                guid, _ = winreg.QueryValueEx(key, 'MachineGuid')
-            finally:
-                winreg.CloseKey(key)
-        except Exception:
-            guid = ''
-    guid = str(guid).strip()
-    if guid:
-        raw = guid
-    else:
-        # MachineGuid недоступен — создаём СВОЙ случайный номер один раз
-        # (уникальный и больше не меняется, т.к. сразу сохраняется в файл)
-        import uuid
-        raw = 'rnd:' + uuid.uuid4().hex
-    mid = hashlib.sha256(raw.encode('utf-8', 'ignore')).hexdigest()[:16].upper()
-    # 3) сохраняем, чтобы впредь не менялся
-    try:
-        os.makedirs(_DEMO_DIR, exist_ok=True)
-        with open(cache, 'w', encoding='utf-8') as f:
-            f.write(mid)
-    except Exception:
-        pass
-    return mid
-
-
-def _is_msstore_edition():
-    """Microsoft Store-сборка: рядом с .exe лежит edition_store.flag=msstore.
-    В этом случае DemoBlock пропускается — Store сам управляет trial/лицензией."""
-    flag = os.path.join(APP_DIR, 'edition_store.flag')
-    try:
-        with open(flag, 'r') as f:
-            return f.read().strip().lower() == 'msstore'
+        return os.path.isfile(os.path.join(APP_DIR, 'demo.flag'))
     except Exception:
         return False
 
 
 class DemoBlock:
-    """Лицензия / демо — привязка к номеру компьютера + журнал на сервере.
+    """Простое локальное демо без интернета и привязки к компьютеру.
 
-    Одна программа на всё. При запуске:
-      1) Есть локальная папка-галочка с нашим номером -> полная версия
-         сразу, без интернета.
-      2) Папки нет -> спрашиваем сервер по номеру этого компьютера;
-         если в журнале «оплачено» -> создаём папку -> полная.
-      3) Иначе -> демо 3 дня, потом блокировка + кнопка «Купить».
-    Кнопка «Купить» сама передаёт номер компьютера в ссылку оплаты.
+    Полная версия (нет demo.flag) — всегда «оплачено», без ограничений.
+    Демо-версия (есть demo.flag) — 3 дня, потом блок + ссылка на сайт.
     """
 
     def __init__(self, code=PRODUCT_CODE, copy=None, demo_days=3, t=None):
@@ -361,177 +299,86 @@ class DemoBlock:
         self.demo_days = demo_days
         self._t = t
         self._bar_frame = None
-
-        # Номер (отпечаток) этого компьютера — всегда один и тот же.
-        self.machine = _machine_id()
-
-        # Дата первого запуска демо — в скрытой папке %APPDATA%\\MAMONOV.
         self._demo_file = os.path.join(_DEMO_DIR, f'.demo_date_{self.code}')
-        # Папка-галочка «оплачено» в профиле Windows (%APPDATA%\\MAMONOV).
-        # Внутри — файлик с номером компьютера (чтобы папку нельзя
-        # было просто скопировать на другой компьютер).
-        self._license_dirs = [
-            os.path.join(_DEMO_DIR, f'.license_{self.code}'),
-        ]
-        # Понятный файл со статусом — в рабочей папке bin.
         self._status_file = os.path.join(_bin_dir(), f'status_{self.code}.txt')
 
-        self.status, self.days_left = self._check()
+        if not _is_demo_edition():
+            # Полная версия — никаких ограничений.
+            self.status, self.days_left = 'licensed', 0
+        else:
+            self.status, self.days_left = self._check_demo()
         self.expired = (self.status == 'expired')
         self.licensed = (self.status == 'licensed')
-
         self._write_status()
 
-    # ---- Две локальные папки-галочки «оплачено» ----
-
-    def _has_local_license(self):
-        """Папка есть и в ней номер именно этого компьютера."""
-        for d in self._license_dirs:
-            try:
-                with open(os.path.join(d, 'id.txt'), 'r', encoding='utf-8') as f:
-                    val = (f.read().strip() or '').upper()
-                if val != self.machine:
-                    return False
-            except Exception:
-                return False
-        return True
-
-    def _create_local_license(self):
-        """Создать папку-галочку с номером компьютера внутри."""
-        for d in self._license_dirs:
-            try:
-                os.makedirs(d, exist_ok=True)
-                with open(os.path.join(d, 'id.txt'), 'w', encoding='utf-8') as f:
-                    f.write(self.machine)
-                if os.name == 'nt':
-                    try:
-                        import ctypes
-                        ctypes.windll.kernel32.SetFileAttributesW(d, 2)
-                    except Exception:
-                        pass
-            except Exception:
-                continue
-
-    # ---- Сервер-журнал оплат ----
-
-    def _ask_server(self):
-        """Спросить сервер про этот номер компьютера.
-
-        Возвращает словарь ответа (paid / days_left / trial_expired) или
-        None, если нет связи / ошибка (= «нет интернета»).
-        Сервер сам при первом обращении запоминает дату первого запуска."""
+    # ---- хранение даты первого запуска (реестр + файл) ----
+    def _read_reg_date(self):
+        if os.name != 'nt':
+            return None
         try:
-            import urllib.request
-            import urllib.parse
-            import json
-            params = urllib.parse.urlencode({
-                'product': self.code,
-                'machine': self.machine,
-            })
-            url = f'{_SITE}/api/check.php?{params}'
-            req = urllib.request.Request(url, method='GET')
-            req.add_header('User-Agent', 'MAMONOV-DemoBlock/4.0')
-            resp = urllib.request.urlopen(req, timeout=5)
-            data = json.loads(resp.read().decode('utf-8', 'ignore') or '{}')
-            return data if isinstance(data, dict) else {}
+            import winreg
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER,
+                                r'Software\MAMONOV') as key:
+                val, _ = winreg.QueryValueEx(key, f'first_{self.code}')
+                return float(val)
         except Exception:
             return None
 
-    # ---- Магазинная сборка (товар на Digiseller) ----
-
-    def _license_key_path(self):
-        """Где лежит файл license.key (одноразовый код из оплаченного
-        архива). Ищем рядом с программой и в текущей папке."""
-        names = ('license.key', 'License.key', 'LICENSE.KEY')
-        dirs = [APP_DIR]
+    def _write_reg_date(self, ts):
+        if os.name != 'nt':
+            return
         try:
-            dirs.append(os.getcwd())
+            import winreg
+            key = winreg.CreateKey(winreg.HKEY_CURRENT_USER, r'Software\MAMONOV')
+            try:
+                winreg.SetValueEx(key, f'first_{self.code}', 0,
+                                  winreg.REG_SZ, str(ts))
+            finally:
+                winreg.CloseKey(key)
         except Exception:
             pass
-        for d in dirs:
-            for name in names:
-                p = os.path.join(d, name)
-                if os.path.isfile(p):
-                    return p
-        return None
 
-    def _read_license_token(self):
-        """Прочитать одноразовый код из license.key (hex, 32..64 символа)
-        или '' если файла нет / код не найден."""
-        import re
-        p = self._license_key_path()
-        if not p:
-            return ''
+    def _read_file_date(self):
         try:
-            with open(p, 'r', encoding='utf-8', errors='ignore') as f:
-                raw = f.read()
+            with open(self._demo_file, 'r', encoding='utf-8') as f:
+                return float(f.read().strip())
         except Exception:
-            return ''
-        m = re.search(r'[a-fA-F0-9]{32,64}', raw or '')
-        return m.group(0).lower() if m else ''
+            return None
 
-    def _is_store_edition(self):
-        """Это «магазинная» сборка (куплена на Digiseller)? Признак — рядом
-        с программой лежит файл license.key с одноразовым кодом.
-        Этот архив выдаёт только оплатившим (store.php)."""
-        return self._read_license_token() != ''
-
-    def _store_activate(self):
-        """Магазинная сборка: при первом запуске сама говорит серверу
-        «этот компьютер оплачен», передавая одноразовый код из license.key.
-        Зовёт /api/activate.php?code=AE&machine=<номер>&token=<код>.
-        Вернёт True только при явном ответе сервера «licensed».
-        Без кода или без связи -> False."""
-        token = self._read_license_token()
-        if not token:
-            return False
+    def _write_file_date(self, ts):
         try:
-            import urllib.request
-            import urllib.parse
-            import json
-            params = urllib.parse.urlencode({
-                'code': self.code,
-                'machine': self.machine,
-                'token': token,
-            })
-            url = f'{_SITE}/api/activate.php?{params}'
-            req = urllib.request.Request(url, method='GET')
-            req.add_header('User-Agent', 'MAMONOV-DemoBlock/4.0')
-            resp = urllib.request.urlopen(req, timeout=5)
-            data = json.loads(resp.read().decode('utf-8', 'ignore') or '{}')
-            ok = bool(data.get('licensed'))
-            if ok:
-                # Код погашён и компьютер привязан — license.key больше не нужен.
+            os.makedirs(_DEMO_DIR, exist_ok=True)
+            with open(self._demo_file, 'w', encoding='utf-8') as f:
+                f.write(str(ts))
+            if os.name == 'nt':
                 try:
-                    p = self._license_key_path()
-                    if p:
-                        os.remove(p)
+                    import ctypes
+                    ctypes.windll.kernel32.SetFileAttributesW(self._demo_file, 2)
                 except Exception:
                     pass
-            return ok
         except Exception:
-            return False
+            pass
 
-    def _check(self):
-        # 1) Магазинная сборка (куплена на Digiseller): при первом запуске
-        #    сама активирует этот компьютер на сервере -> полная версия.
-        if self._is_store_edition() and self._store_activate():
-            return ('licensed', 0)
-        # 2) Спрашиваем сервер по номеру компьютера (сервер сам ведёт
-        #    дату первого запуска и считает дни демо).
-        data = self._ask_server()
-        if data is None:
-            # Нет интернета — не мешаем работать (полная версия).
-            return ('licensed', 0)
-        if bool(data.get('paid')):
-            return ('licensed', 0)
-        try:
-            days_left = int(data.get('days_left', 0))
-        except Exception:
-            days_left = 0
-        if days_left > 0:
-            return ('ok', days_left)
-        return ('expired', 0)
+    def _first_run_ts(self):
+        """Самая ранняя сохранённая дата первого запуска; если нигде
+        нет — сохраняем текущую в оба места. Всегда синхронизируем
+        оба хранилища самой ранней датой."""
+        import time as _time
+        now = _time.time()
+        dates = [d for d in (self._read_reg_date(), self._read_file_date()) if d]
+        first = min(dates) if dates else now
+        self._write_reg_date(first)
+        self._write_file_date(first)
+        return first
+
+    def _check_demo(self):
+        import time as _time
+        import math
+        first = self._first_run_ts()
+        remaining = self.demo_days - (_time.time() - first) / 86400.0
+        if remaining <= 0:
+            return ('expired', 0)
+        return ('ok', max(1, int(math.ceil(remaining))))
 
     def _write_status(self):
         """Сохранить понятный файл со статусом (подсказка для человека)."""
@@ -539,14 +386,13 @@ class DemoBlock:
             import json
             os.makedirs(os.path.dirname(self._status_file), exist_ok=True)
             if self.status == 'licensed':
-                code, text = 'licensed', 'Полная версия (оплачено)'
+                code, text = 'licensed', 'Полная версия'
             elif self.status == 'expired':
-                code, text = 'expired', 'Демо кончилось — не оплачено'
+                code, text = 'expired', 'Демо кончилось'
             else:
                 code, text = 'demo', f'Демо, осталось дней: {self.days_left}'
             data = {
                 'product': self.code,
-                'machine': self.machine,
                 'status': code,
                 'status_text': text,
                 'days_left': self.days_left,
@@ -572,21 +418,14 @@ class DemoBlock:
 
     def buy_url(self):
         t = self._t or (lambda k, *a: k)
-        base = t('demo_buy_link')
-        return f'{base}?product={self.code}&machine={self.machine}'
+        return t('demo_buy_link')
 
     def open_buy_link(self, event=None):
         import webbrowser
-        webbrowser.open(self.buy_url())
-        # Человек открыл страницу оплаты -> сообщаем программе, чтобы она
-        # на время включила частые проверки сервера и разблокировалась
-        # сразу после оплаты, без перезапуска.
-        cb = getattr(self, 'on_buy_click', None)
-        if cb:
-            try:
-                cb()
-            except Exception:
-                pass
+        try:
+            webbrowser.open(self.buy_url())
+        except Exception:
+            pass
 
     def build_bar(self, parent, t=None):
         if t:
@@ -1206,22 +1045,9 @@ class ScreenRecorderApp:
         self.root.configure(bg="#2b2b2b")
         self.root.attributes("-topmost", True)
 
-        # Демо-блок (для Microsoft Store — пропускается, Store сам делает trial)
-        if _is_msstore_edition():
-            self.demo = DemoBlock(code="AE", demo_days=3, t=t)
-            self.demo.status = 'licensed'
-            self.demo.days_left = 0
-            self.demo.expired = False
-            self.demo.licensed = True
-        else:
-            self.demo = DemoBlock(code="AE", demo_days=3, t=t)
-        # Моментальная разблокировка после оплаты (без перезапуска): как
-        # только человек откроет страницу оплаты, включаем на 10 минут
-        # частые проверки сервера (раз в 5 сек); потом они сами гаснут —
-        # чтобы не нагружать хостинг.
-        self.demo.on_buy_click = self._start_fast_license_poll
-        self._fast_poll_active = False
-        self._fast_poll_until = 0.0
+        # Демо-блок: полная версия — без ограничений; демо (есть demo.flag)
+        # — 3 дня, потом блок кнопок и ссылка «Полная версия на сайте».
+        self.demo = DemoBlock(code="AE", demo_days=3, t=t)
         if self.demo.expired:
             self.root.title(t('demo_title'))
 
@@ -1496,83 +1322,6 @@ class ScreenRecorderApp:
             self.btn_save.config(state="normal")
             self.cv_video.itemconfig(self.lamp_video, fill="#cc8800")
             self.cv_audio.itemconfig(self.lamp_audio, fill="#cc8800" if audio_ok else "#666666")
-
-    # ============================================================
-    # Моментальная разблокировка после оплаты (без перезапуска)
-    # ============================================================
-    def _start_fast_license_poll(self):
-        """Человек открыл страницу оплаты -> включаем на 10 минут частые
-        проверки сервера. Если уже полная версия — ничего не делаем."""
-        if self.demo.licensed:
-            return
-        self._fast_poll_until = time.time() + 10 * 60  # 10 минут
-        if not self._fast_poll_active:
-            self._fast_poll_active = True
-            self._fast_poll_tick()
-
-    def _fast_poll_tick(self):
-        """Раз в 5 секунд спрашиваем сервер (в отдельном потоке, чтобы окно
-        не подвисало). По истечении 10 минут сами выключаемся."""
-        if self.demo.licensed:
-            self._fast_poll_active = False
-            return
-        if time.time() > self._fast_poll_until:
-            self._fast_poll_active = False
-            return
-
-        def _ask():
-            paid = False
-            try:
-                paid = self.demo._server_says_paid()
-            except Exception:
-                paid = False
-            if paid:
-                try:
-                    self.root.after(0, self._on_license_confirmed)
-                except Exception:
-                    pass
-
-        try:
-            import threading
-            threading.Thread(target=_ask, daemon=True).start()
-        except Exception:
-            pass
-
-        self.root.after(5000, self._fast_poll_tick)
-
-    def _on_license_confirmed(self):
-        """Сервер подтвердил оплату -> снимаем демо прямо на лету:
-        ставим локальную галочку «оплачено», убираем жёлтую полосу,
-        включаем кнопки и возвращаем обычный заголовок окна."""
-        self._fast_poll_active = False
-        if self.demo.licensed:
-            return
-        # Запомнить оплату локально + перевести в полную версию.
-        try:
-            self.demo._create_local_license()
-        except Exception:
-            pass
-        self.demo.status = 'licensed'
-        self.demo.days_left = 0
-        self.demo.expired = False
-        self.demo.licensed = True
-        try:
-            self.demo._write_status()
-        except Exception:
-            pass
-        # Убрать жёлтую демо-полосу с кнопкой «Разблокировать».
-        try:
-            if self.demo._bar_frame is not None:
-                self.demo._bar_frame.destroy()
-                self.demo._bar_frame = None
-        except Exception:
-            pass
-        # Вернуть обычный заголовок и включить кнопки.
-        try:
-            self.root.title(t('title'))
-        except Exception:
-            pass
-        self._update_ui()
 
     def _hide_from_capture(self):
         # Прячем окно программы от записи экрана — ВСЕГДА, как в проверенной
