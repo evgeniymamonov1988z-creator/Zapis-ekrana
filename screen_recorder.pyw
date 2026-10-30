@@ -989,6 +989,166 @@ def pick_mic(ffmpeg_path):
 
 
 # ============================================================
+# ЗВУК: микрофон + системный звук (WASAPI loopback) через sounddevice.
+# Пишет два WAV (микрофон и звук компьютера); микс с видео — в ffmpeg
+# на финале. Любые ошибки звука НЕ должны ломать запись видео.
+# ============================================================
+class SysAudio:
+    @staticmethod
+    def available():
+        """Доступна ли запись системного звука (есть WASAPI)."""
+        try:
+            import sounddevice as sd
+            import numpy  # noqa: F401
+        except Exception:
+            return False
+        try:
+            for ha in sd.query_hostapis():
+                if "WASAPI" in ha.get("name", ""):
+                    return True
+        except Exception:
+            pass
+        return False
+
+    def __init__(self):
+        self.mic_path = None
+        self.sys_path = None
+        self.mic_ok = False
+        self.sys_ok = False
+        self._active = False
+        self._mic_stream = None
+        self._sys_stream = None
+        self._mic_wav = None
+        self._sys_wav = None
+        self._lock = None
+        self._sd = None
+        self._np = None
+
+    def start(self, mic_path, sys_path, want_mic=True, want_sys=True):
+        try:
+            import sounddevice as sd
+            import numpy as np
+            import threading
+        except Exception:
+            return False
+        self._sd = sd
+        self._np = np
+        self._lock = threading.Lock()
+        self.mic_path = mic_path
+        self.sys_path = sys_path
+        self._active = True
+        if want_mic:
+            self.mic_ok = self._start_one("mic")
+        if want_sys:
+            self.sys_ok = self._start_one("sys")
+        return self.mic_ok or self.sys_ok
+
+    def _open_wav(self, path, channels, rate):
+        import wave
+        wf = wave.open(path, "wb")
+        wf.setnchannels(channels)
+        wf.setsampwidth(2)
+        wf.setframerate(rate)
+        return wf
+
+    def _start_one(self, kind):
+        sd = self._sd
+        np = self._np
+        try:
+            if kind == "mic":
+                info = sd.query_devices(kind="input")
+                rate = int(info["default_samplerate"])
+                ch = min(2, int(info["max_input_channels"])) or 1
+                use_dev = None
+                extra = None
+            else:
+                dev = sd.default.device[1]
+                info = sd.query_devices(dev)
+                rate = int(info["default_samplerate"])
+                ch = min(2, int(info["max_output_channels"])) or 2
+                use_dev = dev
+                extra = sd.WasapiSettings(loopback=True)
+            if ch < 1:
+                ch = 1
+            wf = self._open_wav(
+                self.mic_path if kind == "mic" else self.sys_path, ch, rate)
+
+            def _cb(indata, frames, time_info, status):
+                if not self._active:
+                    return
+                try:
+                    data = (np.clip(indata, -1.0, 1.0) * 32767.0
+                            ).astype(np.int16).tobytes()
+                    with self._lock:
+                        w = self._mic_wav if kind == "mic" else self._sys_wav
+                        if w is not None:
+                            w.writeframes(data)
+                except Exception:
+                    pass
+
+            stream = sd.InputStream(samplerate=rate, channels=ch,
+                                    dtype="float32", device=use_dev,
+                                    extra_settings=extra, callback=_cb)
+            stream.start()
+            if kind == "mic":
+                self._mic_wav = wf
+                self._mic_stream = stream
+            else:
+                self._sys_wav = wf
+                self._sys_stream = stream
+            return True
+        except Exception:
+            try:
+                wf2 = self._mic_wav if kind == "mic" else self._sys_wav
+                if wf2 is not None:
+                    wf2.close()
+            except Exception:
+                pass
+            if kind == "mic":
+                self._mic_wav = None
+            else:
+                self._sys_wav = None
+            return False
+
+    def pause(self):
+        self._active = False
+
+    def resume(self):
+        self._active = True
+
+    def stop(self):
+        self._active = False
+        for s in (self._mic_stream, self._sys_stream):
+            try:
+                if s is not None:
+                    s.stop()
+                    s.close()
+            except Exception:
+                pass
+        self._mic_stream = None
+        self._sys_stream = None
+        lock = self._lock
+        if lock:
+            try:
+                lock.acquire()
+            except Exception:
+                lock = None
+        for wf in (self._mic_wav, self._sys_wav):
+            try:
+                if wf is not None:
+                    wf.close()
+            except Exception:
+                pass
+        if lock:
+            try:
+                lock.release()
+            except Exception:
+                pass
+        self._mic_wav = None
+        self._sys_wav = None
+
+
+# ============================================================
 # ГЛАВНОЕ ОКНО
 # ============================================================
 class ScreenRecorderApp:
@@ -1041,6 +1201,8 @@ class ScreenRecorderApp:
             elif self.mic_info.get("display"):
                 self.mic_name = self.mic_info["display"]
                 self.mic_needs_bat = True
+        # Звук теперь пишется через sounddevice, а не через bat/dshow.
+        self.mic_needs_bat = False
 
         self.state = "idle"
         self.filepath = None
@@ -1050,6 +1212,10 @@ class ScreenRecorderApp:
         self.seg_start = None
         self.current_segment = None
         self._temp_dir = None
+        # Режим звука: 'both' = системный звук + микрофон вместе.
+        self.audio_mode = "both"
+        self._seg_audio = None
+        self._audio = None
 
         self.compact = False
         self._build_ui()
@@ -1109,9 +1275,11 @@ class ScreenRecorderApp:
                                   bg="#2b2b2b", highlightthickness=0)
         self.cv_audio.pack()
         self.lamp_audio = self.cv_audio.create_oval(2, 2, 16, 16, fill="#cc3333")
-        mic_label = t('label_audio') if self.mic_name else t('label_audio_off')
+        _has_sound = (self.mic_name is not None) or (
+            getattr(self, 'audio_mode', 'both') in ('both', 'system') and SysAudio.available())
+        mic_label = t('label_audio') if _has_sound else t('label_audio_off')
         self.lbl_audio = tk.Label(frm_audio, text=mic_label,
-                                 font=("Segoe UI", 8), fg="#999999" if self.mic_name else "#666666",
+                                 font=("Segoe UI", 8), fg="#999999" if _has_sound else "#666666",
                                  bg="#2b2b2b")
         self.lbl_audio.pack()
 
@@ -1264,7 +1432,8 @@ class ScreenRecorderApp:
     # --- Обновить UI ---
 
     def _update_ui(self):
-        audio_ok = self.mic_name is not None
+        audio_ok = (self.mic_name is not None) or (
+            self.audio_mode in ("both", "system") and SysAudio.available())
         if self.demo.expired:
             self.btn_rec.config(state="disabled")
             self.btn_save.config(state="disabled")
@@ -1508,6 +1677,55 @@ class ScreenRecorderApp:
             except Exception:
                 pass
 
+    def _mux_audio(self):
+        """Вмешать записанный звук (микрофон + системный) в готовое видео."""
+        au = getattr(self, "_audio", None)
+        if not au:
+            return
+        if not (self.filepath and os.path.isfile(self.filepath)):
+            return
+        inputs = []
+        if (au.mic_ok and au.mic_path and os.path.isfile(au.mic_path)
+                and os.path.getsize(au.mic_path) > 1000):
+            inputs.append(au.mic_path)
+        if (au.sys_ok and au.sys_path and os.path.isfile(au.sys_path)
+                and os.path.getsize(au.sys_path) > 1000):
+            inputs.append(au.sys_path)
+        if not inputs:
+            return
+        tmp_out = self.filepath + ".av.mp4"
+        cmd = [self.ffmpeg, "-y", "-i", self.filepath]
+        for p in inputs:
+            cmd += ["-i", p]
+        if len(inputs) == 2:
+            cmd += ["-filter_complex",
+                    "[1:a][2:a]amix=inputs=2:duration=longest:normalize=0[a]",
+                    "-map", "0:v", "-map", "[a]"]
+        else:
+            cmd += ["-map", "0:v", "-map", "1:a"]
+        cmd += ["-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-shortest", tmp_out]
+        self._log(f"mux audio: inputs={len(inputs)}")
+        try:
+            si = subprocess.STARTUPINFO()
+            si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            si.wShowWindow = 0
+            subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                           timeout=180, startupinfo=si)
+            if os.path.isfile(tmp_out) and os.path.getsize(tmp_out) > 0:
+                if os.path.isfile(self.filepath):
+                    os.remove(self.filepath)
+                os.rename(tmp_out, self.filepath)
+            else:
+                if os.path.isfile(tmp_out):
+                    os.remove(tmp_out)
+        except Exception as e:
+            self._log(f"mux audio error: {e}")
+            try:
+                if os.path.isfile(tmp_out):
+                    os.remove(tmp_out)
+            except Exception:
+                pass
+
     # ============================================================
     # КНОПКА «ЗАПИСЬ»
     # ============================================================
@@ -1535,10 +1753,30 @@ class ScreenRecorderApp:
         self.seg_start = None
         self._temp_dir = None
 
+        self._audio = None
+        try:
+            tmp = self._get_temp_dir()
+            self._audio = SysAudio()
+            want_mic = self.audio_mode in ("both", "mic")
+            want_sys = self.audio_mode in ("both", "system")
+            self._audio.start(os.path.join(tmp, "mic.wav"),
+                              os.path.join(tmp, "sys.wav"),
+                              want_mic=want_mic, want_sys=want_sys)
+            self._log(f"audio: mic={self._audio.mic_ok} sys={self._audio.sys_ok}")
+        except Exception as e:
+            self._log(f"audio start err: {e}")
+            self._audio = None
+
         self._spawn_segment()
 
     def _pause_recording(self):
         self._stop_ffmpeg()
+
+        if getattr(self, "_audio", None):
+            try:
+                self._audio.pause()
+            except Exception:
+                pass
 
         if self.current_segment and os.path.isfile(self.current_segment):
             self.segments.append(self.current_segment)
@@ -1558,6 +1796,11 @@ class ScreenRecorderApp:
         self.lbl_status.config(text=t('status_paused'), fg="#cc8800")
 
     def _resume_recording(self):
+        if getattr(self, "_audio", None):
+            try:
+                self._audio.resume()
+            except Exception:
+                pass
         self._spawn_segment()
 
     # ============================================================
@@ -1576,8 +1819,15 @@ class ScreenRecorderApp:
                 self.accumulated += int(time.time() - self.seg_start)
                 self.seg_start = None
 
+        if getattr(self, "_audio", None):
+            try:
+                self._audio.stop()
+            except Exception:
+                pass
+
         if self.filepath and self.segments:
             self._concat_segments()
+            self._mux_audio()
 
         if self.filepath and os.path.isfile(self.filepath) and os.path.getsize(self.filepath) > 0:
             self.lbl_status.config(text=t('status_saved', os.path.basename(self.filepath)), fg="#00cc66")
@@ -1616,36 +1866,17 @@ class ScreenRecorderApp:
         tmp = self._get_temp_dir()
         seg_path = os.path.join(tmp, f"seg_{self.segment_num}.mp4")
 
-        if self.mic_name and not self.mic_needs_bat:
-            cmd_list = [
-                self.ffmpeg, "-y",
-                "-f", "gdigrab", "-framerate", "30", "-i", "desktop",
-                "-f", "dshow", "-i", f"audio={self.mic_name}",
-                "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
-                "-c:a", "aac", "-b:a", "128k",
-                "-pix_fmt", "yuv420p",
-                seg_path
-            ]
-        elif self.mic_name and self.mic_needs_bat:
-            bat_line = (
-                f'"{self.ffmpeg}" -y'
-                f' -f gdigrab -framerate 30 -i desktop'
-                f' -f dshow -i "audio={self.mic_name}"'
-                f' -c:v libx264 -preset ultrafast -crf 23'
-                f' -c:a aac -b:a 128k'
-                f' -pix_fmt yuv420p'
-                f' "{seg_path}"'
-            )
-            cmd_list = None
-        else:
-            cmd_list = [
-                self.ffmpeg, "-y",
-                "-f", "gdigrab", "-framerate", "30", "-i", "desktop",
-                "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
-                "-an",
-                "-pix_fmt", "yuv420p",
-                seg_path
-            ]
+        # Звук пишется отдельно (микрофон + системный) через sounddevice
+        # и вмешивается в видео на финале. Здесь — только видео.
+        bat_line = None
+        cmd_list = [
+            self.ffmpeg, "-y",
+            "-f", "gdigrab", "-framerate", "30", "-i", "desktop",
+            "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
+            "-an",
+            "-pix_fmt", "yuv420p",
+            seg_path
+        ]
 
         self._log(f"cmd: {' '.join(cmd_list) if cmd_list else 'bat: ' + bat_line}")
 
