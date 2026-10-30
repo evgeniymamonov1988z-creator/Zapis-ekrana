@@ -90,7 +90,7 @@ T = {
         'demo_days_2': 'ДЕМО — 2 дня',
         'demo_days_1': 'ДЕМО — 1 день',
         'demo_expired': 'Демо кончилось',
-        'demo_buy': 'Полная версия за 499 рублей',
+        'demo_buy': 'Полная версия за 499 руб.',
         'demo_buy_link': 'https://evgeniymamonov.com/buy.php?product=AE&lang=ru',
         'copy_label': '№ копии: {}',
         # Первый запуск — скачивание ffmpeg
