@@ -1730,8 +1730,11 @@ class ScreenRecorderApp:
         for p in inputs:
             cmd += ["-i", p]
         if len(inputs) == 2:
+            # Микрофон обычно громче системного звука (loopback) — поднимаем
+            # звук ПК перед сведением и ограничителем снимаем перегруз.
             cmd += ["-filter_complex",
-                    "[1:a][2:a]amix=inputs=2:duration=longest:normalize=0[a]",
+                    "[2:a]volume=3.0,alimiter=limit=0.95[s];"
+                    "[1:a][s]amix=inputs=2:duration=longest:normalize=0[a]",
                     "-map", "0:v", "-map", "[a]"]
         else:
             cmd += ["-map", "0:v", "-map", "1:a"]
