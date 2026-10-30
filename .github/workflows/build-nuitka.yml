@@ -54,13 +54,14 @@ jobs:
             '--output-filename=Ekrannik.exe',
             '--output-dir=dist'
           )
-          # sounddevice на Windows кладёт библиотеку PortAudio в пакет _sounddevice_data — включаем её
-          python -c "import importlib.util,sys; sys.exit(0 if importlib.util.find_spec('_sounddevice_data') else 1)"
+          # PyAudioWPatch импортируется лениво внутри функций — форсируем включение
+          # всего пакета, иначе Nuitka не положит его в сборку (нужен для звука: микрофон + системный).
+          python -c "import importlib.util,sys; sys.exit(0 if importlib.util.find_spec('pyaudiowpatch') else 1)"
           if ($LASTEXITCODE -eq 0) {
-            Write-Host '[OK] PortAudio (_sounddevice_data) будет включён'
-            $args += '--include-package-data=_sounddevice_data'
+            Write-Host '[OK] PyAudioWPatch (звук) будет включён'
+            $args += '--include-package=pyaudiowpatch'
           } else {
-            Write-Host '[i] _sounddevice_data не найден — пропускаю'
+            Write-Host '[i] pyaudiowpatch не найден — пропускаю (запись пойдёт без звука)'
           }
           if (Test-Path 'bin\ffmpeg.exe') {
             Write-Host '[OK] ffmpeg.exe будет встроен в .exe'

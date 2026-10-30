@@ -989,26 +989,28 @@ def pick_mic(ffmpeg_path):
 
 
 # ============================================================
-# ЗВУК: микрофон + системный звук (WASAPI loopback) через sounddevice.
+# ЗВУК: микрофон + системный звук (WASAPI loopback) через PyAudioWPatch.
 # Пишет два WAV (микрофон и звук компьютера); микс с видео — в ffmpeg
 # на финале. Любые ошибки звука НЕ должны ломать запись видео.
+# PyAudioWPatch отдаёт готовые 16-битные байты — numpy не нужен.
 # ============================================================
 class SysAudio:
     @staticmethod
     def available():
-        """Доступна ли запись системного звука (есть WASAPI)."""
+        """Доступна ли запись звука (есть библиотека + WASAPI)."""
         try:
-            import sounddevice as sd
-            import numpy  # noqa: F401
+            import pyaudiowpatch as pyaudio
         except Exception:
             return False
         try:
-            for ha in sd.query_hostapis():
-                if "WASAPI" in ha.get("name", ""):
-                    return True
+            pa = pyaudio.PyAudio()
+            try:
+                pa.get_host_api_info_by_type(pyaudio.paWASAPI)
+                return True
+            finally:
+                pa.terminate()
         except Exception:
-            pass
-        return False
+            return False
 
     def __init__(self):
         self.mic_path = None
@@ -1016,31 +1018,34 @@ class SysAudio:
         self.mic_ok = False
         self.sys_ok = False
         self._active = False
+        self._pa = None
+        self._pa_mod = None
         self._mic_stream = None
         self._sys_stream = None
         self._mic_wav = None
         self._sys_wav = None
         self._lock = None
-        self._sd = None
-        self._np = None
 
     def start(self, mic_path, sys_path, want_mic=True, want_sys=True):
         try:
-            import sounddevice as sd
-            import numpy as np
+            import pyaudiowpatch as pyaudio
             import threading
         except Exception:
             return False
-        self._sd = sd
-        self._np = np
+        self._pa_mod = pyaudio
         self._lock = threading.Lock()
         self.mic_path = mic_path
         self.sys_path = sys_path
         self._active = True
+        try:
+            self._pa = pyaudio.PyAudio()
+        except Exception:
+            self._pa = None
+            return False
         if want_mic:
-            self.mic_ok = self._start_one("mic")
+            self.mic_ok = self._start_mic()
         if want_sys:
-            self.sys_ok = self._start_one("sys")
+            self.sys_ok = self._start_sys()
         return self.mic_ok or self.sys_ok
 
     def _open_wav(self, path, channels, rate):
@@ -1051,63 +1056,84 @@ class SysAudio:
         wf.setframerate(rate)
         return wf
 
-    def _start_one(self, kind):
-        sd = self._sd
-        np = self._np
-        try:
-            if kind == "mic":
-                info = sd.query_devices(kind="input")
-                rate = int(info["default_samplerate"])
-                ch = min(2, int(info["max_input_channels"])) or 1
-                use_dev = None
-                extra = None
-            else:
-                dev = sd.default.device[1]
-                info = sd.query_devices(dev)
-                rate = int(info["default_samplerate"])
-                ch = min(2, int(info["max_output_channels"])) or 2
-                use_dev = dev
-                extra = sd.WasapiSettings(loopback=True)
-            if ch < 1:
-                ch = 1
-            wf = self._open_wav(
-                self.mic_path if kind == "mic" else self.sys_path, ch, rate)
+    def _make_cb(self, kind):
+        pyaudio = self._pa_mod
 
-            def _cb(indata, frames, time_info, status):
-                if not self._active:
-                    return
+        def _cb(in_data, frame_count, time_info, status):
+            if self._active and in_data:
                 try:
-                    data = (np.clip(indata, -1.0, 1.0) * 32767.0
-                            ).astype(np.int16).tobytes()
                     with self._lock:
                         w = self._mic_wav if kind == "mic" else self._sys_wav
                         if w is not None:
-                            w.writeframes(data)
+                            w.writeframes(in_data)
                 except Exception:
                     pass
+            return (None, pyaudio.paContinue)
 
-            stream = sd.InputStream(samplerate=rate, channels=ch,
-                                    dtype="float32", device=use_dev,
-                                    extra_settings=extra, callback=_cb)
-            stream.start()
-            if kind == "mic":
-                self._mic_wav = wf
-                self._mic_stream = stream
-            else:
-                self._sys_wav = wf
-                self._sys_stream = stream
+        return _cb
+
+    def _start_mic(self):
+        pa = self._pa
+        pyaudio = self._pa_mod
+        try:
+            info = pa.get_default_input_device_info()
+            rate = int(info["defaultSampleRate"])
+            ch = min(2, int(info["maxInputChannels"])) or 1
+            if ch < 1:
+                ch = 1
+            wf = self._open_wav(self.mic_path, ch, rate)
+            self._mic_wav = wf
+            stream = pa.open(format=pyaudio.paInt16, channels=ch, rate=rate,
+                             input=True, input_device_index=int(info["index"]),
+                             frames_per_buffer=1024,
+                             stream_callback=self._make_cb("mic"))
+            stream.start_stream()
+            self._mic_stream = stream
             return True
         except Exception:
             try:
-                wf2 = self._mic_wav if kind == "mic" else self._sys_wav
-                if wf2 is not None:
-                    wf2.close()
+                if self._mic_wav is not None:
+                    self._mic_wav.close()
             except Exception:
                 pass
-            if kind == "mic":
-                self._mic_wav = None
-            else:
-                self._sys_wav = None
+            self._mic_wav = None
+            return False
+
+    def _start_sys(self):
+        pa = self._pa
+        pyaudio = self._pa_mod
+        try:
+            wasapi = pa.get_host_api_info_by_type(pyaudio.paWASAPI)
+            spk = pa.get_device_info_by_index(wasapi["defaultOutputDevice"])
+            if not spk.get("isLoopbackDevice", False):
+                found = None
+                for lb in pa.get_loopback_device_info_generator():
+                    if spk["name"] in lb["name"]:
+                        found = lb
+                        break
+                if found is None:
+                    return False
+                spk = found
+            rate = int(spk["defaultSampleRate"])
+            ch = min(2, int(spk["maxInputChannels"])) or 2
+            if ch < 1:
+                ch = 2
+            wf = self._open_wav(self.sys_path, ch, rate)
+            self._sys_wav = wf
+            stream = pa.open(format=pyaudio.paInt16, channels=ch, rate=rate,
+                             input=True, input_device_index=int(spk["index"]),
+                             frames_per_buffer=1024,
+                             stream_callback=self._make_cb("sys"))
+            stream.start_stream()
+            self._sys_stream = stream
+            return True
+        except Exception:
+            try:
+                if self._sys_wav is not None:
+                    self._sys_wav.close()
+            except Exception:
+                pass
+            self._sys_wav = None
             return False
 
     def pause(self):
@@ -1121,7 +1147,7 @@ class SysAudio:
         for s in (self._mic_stream, self._sys_stream):
             try:
                 if s is not None:
-                    s.stop()
+                    s.stop_stream()
                     s.close()
             except Exception:
                 pass
@@ -1146,6 +1172,12 @@ class SysAudio:
                 pass
         self._mic_wav = None
         self._sys_wav = None
+        try:
+            if self._pa is not None:
+                self._pa.terminate()
+        except Exception:
+            pass
+        self._pa = None
 
 
 # ============================================================
@@ -1201,7 +1233,7 @@ class ScreenRecorderApp:
             elif self.mic_info.get("display"):
                 self.mic_name = self.mic_info["display"]
                 self.mic_needs_bat = True
-        # Звук теперь пишется через sounddevice, а не через bat/dshow.
+        # Звук теперь пишется через PyAudioWPatch, а не через bat/dshow.
         self.mic_needs_bat = False
 
         self.state = "idle"
@@ -1866,7 +1898,7 @@ class ScreenRecorderApp:
         tmp = self._get_temp_dir()
         seg_path = os.path.join(tmp, f"seg_{self.segment_num}.mp4")
 
-        # Звук пишется отдельно (микрофон + системный) через sounddevice
+        # Звук пишется отдельно (микрофон + системный) через PyAudioWPatch
         # и вмешивается в видео на финале. Здесь — только видео.
         bat_line = None
         cmd_list = [
