@@ -315,7 +315,9 @@ def _copy_id(code):
             if cid:
                 return cid
         import uuid
-        cid = str(code) + uuid.uuid4().hex[:8]
+        # Сервер принимает номер строго как «две буквы + только цифры»,
+        # поэтому берём цифры (без букв): код + 9 цифр.
+        cid = str(code) + str(uuid.uuid4().int)[:9]
         with open(f, 'w', encoding='utf-8') as fh:
             fh.write(cid)
         return cid
