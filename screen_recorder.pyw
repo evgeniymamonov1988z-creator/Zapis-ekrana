@@ -287,6 +287,83 @@ def _is_demo_edition():
         return False
 
 
+# ============================================================
+# Тихий счётчик запусков ДЕМО (только факт запуска).
+#
+# При старте демо-версии программа один раз в фоне отправляет
+# короткий сигнал "демо-копию запустили" на сервер. Дату/время
+# проставляет сам сервер. Личных данных и привязки к железу нет.
+# Если интернета нет или сервер молчит — программа работает как
+# обычно, без задержек и ошибок (всё молча).
+#
+# На компьютере владельца (есть файл owner.flag) сигнал НЕ шлётся,
+# чтобы свои запуски не портили статистику.
+# ============================================================
+_PING_URL = 'https://evgeniymamonov.com/api/ping.php'
+
+
+def _copy_id(code):
+    """Обезличенный номер копии: создаётся один раз и хранится в
+    %APPDATA%\\MAMONOV. Без привязки к железу, без личных данных.
+    Нужен лишь чтобы отличать разные установки от повторных запусков."""
+    try:
+        os.makedirs(_DEMO_DIR, exist_ok=True)
+        f = os.path.join(_DEMO_DIR, '.copy_id_' + str(code))
+        if os.path.isfile(f):
+            with open(f, 'r', encoding='utf-8') as fh:
+                cid = fh.read().strip()
+            if cid:
+                return cid
+        import uuid
+        cid = str(code) + uuid.uuid4().hex[:8]
+        with open(f, 'w', encoding='utf-8') as fh:
+            fh.write(cid)
+        return cid
+    except Exception:
+        return ''
+
+
+def _is_owner():
+    """Компьютер владельца? Тогда запуски не считаем. Пометка — пустой
+    файл owner.flag рядом с программой или в %APPDATA%\\MAMONOV."""
+    try:
+        if os.path.isfile(os.path.join(APP_DIR, 'owner.flag')):
+            return True
+        if os.path.isfile(os.path.join(_DEMO_DIR, 'owner.flag')):
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def _demo_ping(code):
+    """Один тихий фоновый сигнал: демо-копию запустили. Ничего не
+    блокирует и не задерживает; при любой ошибке молчит."""
+    if _is_owner():
+        return
+
+    def _send():
+        try:
+            import urllib.parse
+            import urllib.request
+            cid = _copy_id(code)
+            if not cid:
+                return
+            q = urllib.parse.urlencode({'instance': cid, 'status': 'demo'})
+            req = urllib.request.Request(
+                _PING_URL + '?' + q,
+                headers={'User-Agent': 'MAMONOV-DemoPing/1.0'})
+            urllib.request.urlopen(req, timeout=3).read()
+        except Exception:
+            pass
+
+    try:
+        import threading
+        threading.Thread(target=_send, daemon=True).start()
+    except Exception:
+        pass
+
+
 class DemoBlock:
     """Простое локальное демо без интернета и привязки к компьютеру.
 
@@ -310,6 +387,9 @@ class DemoBlock:
         self.expired = (self.status == 'expired')
         self.licensed = (self.status == 'licensed')
         self._write_status()
+        # Демо активно -> один тихий сигнал о запуске (только факт).
+        if self.status == 'ok':
+            _demo_ping(self.code)
 
     # ---- хранение даты первого запуска (реестр + файл) ----
     def _read_reg_date(self):
