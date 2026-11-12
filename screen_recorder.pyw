@@ -338,7 +338,7 @@ def _is_owner():
     return False
 
 
-def _demo_ping(code):
+def _demo_ping(code, status='demo', days=0):
     """Один тихий фоновый сигнал: демо-копию запустили. Ничего не
     блокирует и не задерживает; при любой ошибке молчит."""
     if _is_owner():
@@ -351,7 +351,9 @@ def _demo_ping(code):
             cid = _copy_id(code)
             if not cid:
                 return
-            q = urllib.parse.urlencode({'instance': cid, 'status': 'demo'})
+            q = urllib.parse.urlencode({'instance': cid,
+                                        'status': status,
+                                        'days': int(days)})
             req = urllib.request.Request(
                 _PING_URL + '?' + q,
                 headers={'User-Agent': 'MAMONOV-DemoPing/1.0'})
@@ -389,9 +391,12 @@ class DemoBlock:
         self.expired = (self.status == 'expired')
         self.licensed = (self.status == 'licensed')
         self._write_status()
-        # Демо активно -> один тихий сигнал о запуске (только факт).
-        if self.status == 'ok':
-            _demo_ping(self.code)
+        # Один тихий сигнал о запуске: статус и остаток дней.
+        # Демо, кончившееся демо и полная версия — всё считаем,
+        # чтобы было видно, дошёл ли человек до конца срока.
+        _demo_ping(self.code,
+                   'demo' if self.status == 'ok' else self.status,
+                   self.days_left if self.status == 'ok' else 0)
 
     # ---- хранение даты первого запуска (реестр + файл) ----
     def _read_reg_date(self):
