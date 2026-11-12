@@ -7,7 +7,7 @@
   2) стирает сохранённую дату первого запуска демо (реестр + %APPDATA%\\MAMONOV).
 Затем удаляет сам себя, чтобы не оставался в загрузках.
 
-Ничего не устанавливает, не трогает записи и настройки пользователя.
+Язык окна — по языку Windows: русская → по-русски, остальные → по-английски.
 """
 
 import os
@@ -17,6 +17,52 @@ import subprocess
 CODE = 'AE'
 APP_EXE = 'Ekrannik.exe'
 
+# ---------------------------------------------------------------- язык
+T = {
+    'ru': {
+        'title': 'Экранник — активация',
+        'ok': 'Готово! Теперь у вас полная версия.\n\n'
+              'Откройте Экранник — ограничений по дням нет.',
+        'notfound': 'Не удалось найти Ekrannik.exe.\n\n'
+                    'Сначала установите программу, затем запустите этот ключ.',
+    },
+    'en': {
+        'title': 'Ekrannik — activation',
+        'ok': 'Done! You now have the full version.\n\n'
+              'Open Ekrannik — there is no day limit.',
+        'notfound': 'Ekrannik.exe was not found.\n\n'
+                    'Please install the program first, then run this key.',
+    },
+}
+
+
+def detect_lang():
+    """Язык интерфейса Windows: 'ru' или 'en'."""
+    try:
+        import ctypes
+        lang_id = ctypes.windll.kernel32.GetUserDefaultUILanguage() & 0x3FF
+        # 0x19 = русский, 0x22 = украинский, 0x23 = белорусский
+        if lang_id in (0x19, 0x22, 0x23):
+            return 'ru'
+        return 'en'
+    except Exception:
+        pass
+    try:
+        import locale
+        code = (locale.getdefaultlocale()[0] or '').lower()
+        return 'ru' if code.startswith('ru') else 'en'
+    except Exception:
+        return 'en'
+
+
+LANG = detect_lang()
+
+
+def tr(key):
+    return T.get(LANG, T['en']).get(key, T['en'].get(key, key))
+
+
+# ---------------------------------------------------------------- работа
 
 def appdata_dir():
     base = os.environ.get('APPDATA') or os.path.expanduser('~')
@@ -27,7 +73,6 @@ def find_app_dirs():
     """Найти папки, где лежит Ekrannik.exe."""
     found = []
     candidates = []
-    appdata = os.environ.get('APPDATA')
     localappdata = os.environ.get('LOCALAPPDATA')
     if localappdata:
         candidates.append(os.path.join(localappdata, 'Programs', 'Ekrannik'))
@@ -51,13 +96,13 @@ def remove_flag(folder):
         if os.path.isfile(flag):
             try:
                 import ctypes
-                ctypes.windll.kernel32.SetFileAttributesW(flag, 128)  # обычный
+                ctypes.windll.kernel32.SetFileAttributesW(flag, 128)
             except Exception:
                 pass
             os.remove(flag)
             return True
-    except Exception as e:
-        return ('err', str(e))
+    except Exception:
+        return False
     return False
 
 
@@ -102,35 +147,32 @@ def self_delete():
         pass
 
 
+def show(text, error=False):
+    try:
+        import tkinter as tk
+        from tkinter import messagebox
+        r = tk.Tk()
+        r.withdraw()
+        if error:
+            messagebox.showerror(tr('title'), text)
+        else:
+            messagebox.showinfo(tr('title'), text)
+        r.destroy()
+    except Exception:
+        print(text)
+
+
 def main():
     dirs = find_app_dirs()
     if not dirs:
-        try:
-            import tkinter as tk
-            from tkinter import messagebox
-            r = tk.Tk(); r.withdraw()
-            messagebox.showerror('Экранник — активация',
-                                 'Не удалось найти Ekrannik.exe.\n'
-                                 'Сначала установите программу, затем запустите этот ключ.')
-            r.destroy()
-        except Exception:
-            print('Ekrannik.exe не найден')
+        show(tr('notfound'), error=True)
         return
 
     for d in dirs:
         remove_flag(d)
-    cleared = clear_demo_date()
+    clear_demo_date()
 
-    try:
-        import tkinter as tk
-        from tkinter import messagebox
-        r = tk.Tk(); r.withdraw()
-        messagebox.showinfo('Экранник — активация',
-                            'Готово! Теперь у вас полная версия.\n\n'
-                            'Откройте Экранник — ограничений по дням нет.')
-        r.destroy()
-    except Exception:
-        print('Готово: полная версия.')
+    show(tr('ok'))
     self_delete()
 
 
