@@ -282,6 +282,40 @@ jobs:
           $sig = Set-AuthenticodeSignature -FilePath $exe.FullName -Certificate $cert -TimestampServer "http://timestamp.digicert.com"
           Write-Host ('[OK] Signed: ' + $exe.FullName + ' -> ' + $sig.Status)
 
+      - name: Build activation key (Ekrannik-Unlock)
+        shell: pwsh
+        run: |
+          # Маленький ключ для покупателя: убирает demo.flag и дату демо, затем удаляет себя.
+          python -m pip install --quiet nuitka==2.4.8
+          $args = @(
+            '--onefile',
+            '--assume-yes-for-downloads',
+            '--windows-console-mode=disable',
+            '--enable-plugin=tk-inter',
+            '--windows-icon-from-ico=mamonov_icon.ico',
+            '--company-name=Evgeniy Mamonov',
+            '--product-name=Ekrannik Unlock',
+            '--file-description=Ekrannik activation key',
+            '--file-version=1.0.0.0',
+            '--product-version=1.0.0.0',
+            '--copyright=Copyright (c) Evgeniy Mamonov. All rights reserved.',
+            '--output-filename=Ekrannik-Unlock.exe',
+            '--output-dir=dist'
+          )
+          python -m nuitka @args unlock.py
+          if ($LASTEXITCODE -ne 0) { Write-Host '[!] Сборка ключа не удалась'; exit 1 }
+          $k = Get-ChildItem 'dist\Ekrannik-Unlock.exe'
+          Write-Host ('[OK] ' + $k.Name + '  ' + [math]::Round($k.Length/1MB,2) + ' MB')
+          $pfxBytes = [Convert]::FromBase64String($env:SIGN_PFX_BASE64)
+          $pfxPath = Join-Path $env:RUNNER_TEMP 'sign.pfx'
+          [IO.File]::WriteAllBytes($pfxPath, $pfxBytes)
+          $cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($pfxPath, $env:SIGN_PFX_PASSWORD, 'Exportable,PersistKeySet')
+          $sig = Set-AuthenticodeSignature -FilePath $k.FullName -Certificate $cert -TimestampServer "http://timestamp.digicert.com"
+          Write-Host ('[OK] Signed key -> ' + $sig.Status)
+        env:
+          SIGN_PFX_BASE64: ${{ secrets.SIGN_PFX_BASE64 }}
+          SIGN_PFX_PASSWORD: ${{ secrets.SIGN_PFX_PASSWORD }}
+
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
@@ -290,6 +324,7 @@ jobs:
             dist/*.zip
             dist/Ekrannik-Setup*.exe
             dist/Ekrannik-Full-Setup*.exe
+            dist/Ekrannik-Unlock.exe
           if-no-files-found: error
 
       - name: Publish to rolling release (auto-build-nuitka)
@@ -302,4 +337,5 @@ jobs:
             dist/*.zip
             dist/Ekrannik-Setup*.exe
             dist/Ekrannik-Full-Setup*.exe
+            dist/Ekrannik-Unlock.exe
           make_latest: true
