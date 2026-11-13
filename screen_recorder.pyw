@@ -86,10 +86,8 @@ T = {
         'error_copy_btn': '\U0001f4cb Копировать',
         # Демо
         'demo_title': 'Запись экрана — ДЕМО',
-        'demo_days_3': 'ДЕМО — 3 дня',
-        'demo_days_2': 'ДЕМО — 2 дня',
-        'demo_days_1': 'ДЕМО — 1 день',
-        'demo_expired': 'Демо кончилось',
+        'demo_left': 'Демо: осталось {n} дн.',
+        'demo_expired': 'Демо закончилось',
         'demo_buy': 'Полная версия за 499 руб.',
         'demo_buy_link': 'https://evgeniymamonov.com/buy.php?product=AE&lang=ru&utm_source=app&utm_medium=demo_end&utm_campaign=buy',
         'copy_label': '№ копии: {}',
@@ -135,9 +133,7 @@ T = {
         'error_copy_btn': '\U0001f4cb Copy',
         # Demo
         'demo_title': 'Screen Recorder — DEMO',
-        'demo_days_3': 'DEMO — 3 days',
-        'demo_days_2': 'DEMO — 2 days',
-        'demo_days_1': 'DEMO — 1 day',
+        'demo_left': 'Demo: {n} days left',
         'demo_expired': 'Demo expired',
         'demo_buy': 'Full version for $9.9',
         'demo_buy_link': 'https://evgeniymamonov.com/buy.php?product=AE&lang=en&utm_source=app&utm_medium=demo_end&utm_campaign=buy',
@@ -586,14 +582,9 @@ class DemoBlock:
         t = self._t or (lambda k, *a: k)
         if self.licensed:
             return ''
-        if self.days_left >= 3:
-            return t('demo_days_3')
-        elif self.days_left == 2:
-            return t('demo_days_2')
-        elif self.days_left == 1:
-            return t('demo_days_1')
-        else:
-            return t('demo_expired')
+        if self.days_left > 0:
+            return t('demo_left', n=self.days_left)
+        return t('demo_expired')
 
     def buy_url(self):
         t = self._t or (lambda k, *a: k)
