@@ -406,10 +406,53 @@ def _demo_ping(code, status='demo', days=0):
             urllib.request.urlopen(req, timeout=3).read()
         except Exception:
             pass
+        # Тот же факт запуска отмечаем в Яндекс.Метрике напрямую из
+        # программы (через мини-страницу в системном браузере).
+        # Так Метрика видит настоящий визит человека, а не запрос сервера.
+        _metrika_launch_page(code)
 
     try:
         import threading
         threading.Thread(target=_send, daemon=True).start()
+    except Exception:
+        pass
+
+
+# Мини-страницы Метрики: открываются один раз при первом запуске демо
+# на этой копии, отмечают цель «Запуск программы» и больше не появляются.
+_LAUNCH_PAGE = {
+    'AE': 'https://evgeniymamonov.com/zapusk-ae.html',
+    'AF': 'https://evgeniymamonov.com/zapusk-af.html',
+    'AG': 'https://evgeniymamonov.com/zapusk-ag.html',
+}
+
+
+def _metrika_launch_page(code):
+    """Один раз на копию открыть служебную страницу в браузере, чтобы
+    Метрика сама засчитала запуск демо. Тихо: если не получилось —
+    ничего не происходит, программа работает как обычно."""
+    try:
+        if _is_owner():
+            return
+        url = _LAUNCH_PAGE.get(str(code).upper())
+        if not url:
+            return
+        import hashlib
+        cid = _copy_id(code)
+        if not cid:
+            return
+        os.makedirs(_DEMO_DIR, exist_ok=True)
+        tok = hashlib.sha1((cid + url).encode('utf-8')).hexdigest()[:8]
+        mark = os.path.join(_DEMO_DIR, f'.mh_{code}_{tok}')
+        if os.path.isfile(mark):
+            return
+        try:
+            with open(mark, 'w', encoding='utf-8') as fh:
+                fh.write(cid)
+        except Exception:
+            return
+        import webbrowser
+        webbrowser.open(url, new=0, autoraise=False)
     except Exception:
         pass
 
