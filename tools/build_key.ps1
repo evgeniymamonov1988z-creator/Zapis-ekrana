@@ -31,11 +31,24 @@ $env:PATH = $bin + ';' + $env:PATH
 Write-Host ('windows.h: ' + (Test-Path (Join-Path $msvcver.FullName 'include\windows.h')) + '  shellapi: ' + (Test-Path ('C:\Program Files (x86)\Windows Kits\10\Include\' + $sdkver + '\um\shellapi.h')))
 
 Write-Host '[1/3] иконка и версия'
-& (Join-Path $bin 'rc.exe') /nologo act_key.rc
-Write-Host ('rc exit: ' + $LASTEXITCODE)
+# rc.exe в новых VS лежит не в bin, а глубже — ищем по всему VS/SDK.
+$rcExe = Get-ChildItem $vs -Recurse -Filter rc.exe -ErrorAction SilentlyContinue | Where-Object { $_.FullName -match 'x64' } | Select-Object -First 1
+if (-not $rcExe) {
+    $rcExe = Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\bin' -Recurse -Filter rc.exe -ErrorAction SilentlyContinue | Where-Object { $_.FullName -match 'x64' } | Select-Object -First 1
+}
+if ($rcExe) {
+    Write-Host ('rc: ' + $rcExe.FullName)
+    $rcExe.FullName /nologo act_key.rc
+    Write-Host ('rc exit: ' + $LASTEXITCODE)
+} else {
+    Write-Host '[!] rc.exe не найден — собираю без иконки'
+}
 
 Write-Host '[2/3] компиляция'
-& (Join-Path $bin 'cl.exe') /nologo /O2 /MT /EHsc act_key.c act_key.res /link /SUBSYSTEM:WINDOWS /OUT:act_key.exe user32.lib shell32.lib advapi32.lib
+$resArg = @()
+if (Test-Path act_key.res) { $resArg = @('act_key.res') }
+$clExe = Join-Path $bin 'cl.exe'
+$clExe /nologo /O2 /MT /EHsc act_key.c @resArg /link /SUBSYSTEM:WINDOWS /OUT:act_key.exe user32.lib shell32.lib advapi32.lib
 $rc = $LASTEXITCODE
 Write-Host ('cl exit: ' + $rc)
 if ($rc -ne 0) { exit 1 }
