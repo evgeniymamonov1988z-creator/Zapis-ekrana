@@ -103,9 +103,11 @@ jobs:
       - name: Build FULL installer with Inno Setup
         shell: pwsh
         run: |
-          # Установщик ПОЛНОЙ версии — собираем из папки, пока в ней ЕЩЁ НЕТ demo.flag.
+          # Установщик ПОЛНОЙ версии. Кладём явную метку full.flag —
+          # программа считает себя полной только при наличии этой метки.
           $exeName = 'Ekrannik.exe'
           $appTitle = 'Ekrannik'
+          New-Item -ItemType File -Path 'full.flag' -Force | Out-Null
           $lines = @(
             '[Setup]',
             "AppName=$appTitle",
@@ -139,6 +141,7 @@ jobs:
             'Type: files; Name: "{app}\demo.flag"',
             '',
             '[Files]',
+            'Source: "full.flag"; DestDir: "{app}"; Flags: ignoreversion',
             'Source: "dist\Ekrannik\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs',
             '',
             '[Icons]',
@@ -183,6 +186,8 @@ jobs:
         run: |
           # Делаем папку ДЕМО: кладём demo.flag рядом с .exe → демо 3 дня.
           New-Item -ItemType File -Path 'dist\Ekrannik\demo.flag' -Force | Out-Null
+          Remove-Item 'dist\Ekrannik\full.flag' -ErrorAction SilentlyContinue
+          New-Item -ItemType File -Path 'demo.flag' -Force | Out-Null
           Write-Host '[OK] demo.flag добавлен — установщик ниже = ДЕМО'
 
       - name: Build installer with Inno Setup
@@ -226,6 +231,7 @@ jobs:
             'Type: files; Name: "{app}\demo.flag"',
             '',
             '[Files]',
+            'Source: "demo.flag"; DestDir: "{app}"; Flags: ignoreversion',
             'Source: "dist\Ekrannik\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs',
             '',
             '[Icons]',

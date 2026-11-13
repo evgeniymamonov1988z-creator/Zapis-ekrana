@@ -303,17 +303,30 @@ def _has_license():
         return False
 
 
-def _is_demo_edition():
-    """Демо-сборка? Признаки полной версии:
-      • рядом лежит файл лицензии с правильной меткой (это дал ключ), или
-      • рядом НЕТ файла demo.flag.
-    Иначе — демо на 3 дня."""
+FULL_FLAG_FILE = 'full.flag'
+
+
+def _has_full_flag():
+    """Явная метка полной версии (её ставит установщик полной версии)."""
     try:
-        if _has_license():
-            return False
-        return os.path.isfile(os.path.join(APP_DIR, 'demo.flag'))
+        return os.path.isfile(os.path.join(APP_DIR, FULL_FLAG_FILE))
     except Exception:
         return False
+
+
+def _is_demo_edition():
+    """Демо-сборка? Полная версия — если есть:
+      • файл лицензии с правильной меткой (это дал ключ активации), или
+      • метка полной версии full.flag.
+    Всё остальное — демо на 3 дня.
+    Метка демо (demo.flag) специально НЕ считается признаком полной версии:
+    скопировали папку, удалили файл — версия от этого полной не становится."""
+    try:
+        if _has_license() or _has_full_flag():
+            return False
+        return True
+    except Exception:
+        return True
 
 
 # ============================================================
