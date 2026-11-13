@@ -86,7 +86,11 @@ static void self_delete(void) {
     }
 }
 
-int wmain(int argc, wchar_t **argv) {
+int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE hPrev, PWSTR cmdline, int show) {
+    (void)hInst; (void)hPrev; (void)cmdline; (void)show;
+    int argc = 0;
+    wchar_t **argv = CommandLineToArgvW(GetCommandLineW(), &argc);
+    if (!argv) argc = 0;
     int silent = 0;
     for (int i = 1; i < argc; i++)
         if (wcscmp(argv[i], L"--silent") == 0) silent = 1;
