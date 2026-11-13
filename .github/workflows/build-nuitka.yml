@@ -268,19 +268,16 @@ jobs:
           Write-Host ('[OK] Signed: ' + $exe.FullName + ' -> ' + $sig.Status)
 
       - name: Build activation key (Ekrannik-Unlock)
-        shell: cmd
+        shell: pwsh
         run: |
-          rem Ключ активации: обычный C-файл, компилятор из состава Windows (MSVC).
-          rem Ставит license_AE.dat, поэтому демо-установка больше не снимает активацию.
-          call "%VCToolsInstallDir%vcvars64.bat"
-          if errorlevel 1 exit /b 1
-          rc /nologo act_key.rc
-          if errorlevel 1 exit /b 1
-          cl /nologo /O2 /MT act_key.c act_key.res /link /SUBSYSTEM:WINDOWS /OUT:act_key.exe user32.lib shell32.lib advapi32.lib
-          if errorlevel 1 exit /b 1
-          if not exist dist mkdir dist
-          copy /y act_key.exe "dist\Ekrannik-Unlock.exe"
-          dir dist\Ekrannik-Unlock.exe
+          # Ключ активации: обычный C-файл, компилятор из состава Windows (MSVC).
+          # Ставит license_AE.dat, поэтому демо-установка больше не снимает активацию.
+          cmd /c "call ""$env:VCToolsInstallDir\vcvars64.bat"" >nul 2>&1 && rc /nologo act_key.rc && cl /nologo /O2 /MT act_key.c act_key.res /link /SUBSYSTEM:WINDOWS /OUT:act_key.exe user32.lib shell32.lib advapi32.lib"
+          if ($LASTEXITCODE -ne 0) { Write-Host '[!] Сборка ключа не удалась'; exit 1 }
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Copy-Item act_key.exe 'dist\Ekrannik-Unlock.exe' -Force
+          $k = Get-Item 'dist\Ekrannik-Unlock.exe'
+          Write-Host ('[OK] ' + $k.Name + '  ' + [math]::Round($k.Length/1KB,1) + ' KB')
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
