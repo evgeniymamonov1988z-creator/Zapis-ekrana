@@ -22,3 +22,8 @@ ffmpeg_log.txt
 error.log
 .screen_recorder.lock
 .screen_recorder.pid
+
+# activation key build output
+act_key.exe
+act_key.obj
+act_key.res
