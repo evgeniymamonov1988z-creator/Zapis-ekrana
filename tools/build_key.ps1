@@ -1,16 +1,21 @@
 $ErrorActionPreference = 'Continue'
 
 # Ключ активации Экранник (AE) — сборка из act_key.c компилятором из состава Windows.
+# Все внешние команды вызываются через Start-Process / аргументные массивы,
+# чтобы PowerShell не разбирал пути с пробелами как арифметику.
+
 $vs = 'C:\Program Files\Microsoft Visual Studio\18\Enterprise'
 if (-not (Test-Path $vs)) {
-    $vs = (cmd /c '"C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -property installationPath').Trim()
+    $vswhere = 'C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe'
+    Start-Process -FilePath $vswhere -ArgumentList '-latest','-products','*','-property','installationPath' -NoNewWindow -Wait -RedirectStandardOutput vspath.txt
+    $vs = (Get-Content vspath.txt -Raw).Trim()
+    Remove-Item vspath.txt -ErrorAction SilentlyContinue
 }
 Write-Host ('VS: ' + $vs)
 
 $msvcver = Get-ChildItem (Join-Path $vs 'VC\Tools\MSVC') -Directory | Sort-Object Name -Descending | Select-Object -First 1
 $bin = Join-Path $msvcver.FullName 'bin\Hostx64\x64'
 Write-Host ('MSVC: ' + $msvcver.Name)
-Write-Host ('cl: ' + (Test-Path (Join-Path $bin 'cl.exe')) + '  rc: ' + (Test-Path (Join-Path $bin 'rc.exe')))
 
 $sdk = Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\Include' -Directory | Sort-Object Name -Descending | Select-Object -First 1
 $sdkver = $sdk.Name
@@ -28,31 +33,33 @@ $env:LIB = @(
   ('C:\Program Files (x86)\Windows Kits\10\Lib\' + $sdkver + '\um\x64')
 ) -join ';'
 $env:PATH = $bin + ';' + $env:PATH
-Write-Host ('windows.h: ' + (Test-Path (Join-Path $msvcver.FullName 'include\windows.h')) + '  shellapi: ' + (Test-Path ('C:\Program Files (x86)\Windows Kits\10\Include\' + $sdkver + '\um\shellapi.h')))
 
+# ---- 1) иконка и версия (rc.exe в новых VS лежит не в bin — ищем везде)
 Write-Host '[1/3] иконка и версия'
-# rc.exe в новых VS лежит не в bin, а глубже — ищем по всему VS/SDK.
 $rcExe = Get-ChildItem $vs -Recurse -Filter rc.exe -ErrorAction SilentlyContinue | Where-Object { $_.FullName -match 'x64' } | Select-Object -First 1
 if (-not $rcExe) {
     $rcExe = Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\bin' -Recurse -Filter rc.exe -ErrorAction SilentlyContinue | Where-Object { $_.FullName -match 'x64' } | Select-Object -First 1
 }
 if ($rcExe) {
     Write-Host ('rc: ' + $rcExe.FullName)
-    $rcExe.FullName /nologo act_key.rc
-    Write-Host ('rc exit: ' + $LASTEXITCODE)
+    $rp = Start-Process -FilePath $rcExe.FullName -ArgumentList '/nologo','act_key.rc' -NoNewWindow -Wait -PassThru
+    Write-Host ('rc exit: ' + $rp.ExitCode)
 } else {
     Write-Host '[!] rc.exe не найден — собираю без иконки'
 }
 
+# ---- 2) компиляция
 Write-Host '[2/3] компиляция'
-$resArg = @()
-if (Test-Path act_key.res) { $resArg = @('act_key.res') }
-$clExe = Join-Path $bin 'cl.exe'
-$clExe /nologo /O2 /MT /EHsc act_key.c @resArg /link /SUBSYSTEM:WINDOWS /OUT:act_key.exe user32.lib shell32.lib advapi32.lib
-$rc = $LASTEXITCODE
-Write-Host ('cl exit: ' + $rc)
-if ($rc -ne 0) { exit 1 }
+$src = @('act_key.c')
+if (Test-Path 'act_key.res') { $src += 'act_key.res' }
 
+$clArgs = @('/nologo','/O2','/MT','/EHsc') + $src + @('/link','/SUBSYSTEM:WINDOWS','/OUT:act_key.exe','user32.lib','shell32.lib','advapi32.lib')
+$clExe = Join-Path $bin 'cl.exe'
+$p = Start-Process -FilePath $clExe -ArgumentList $clArgs -NoNewWindow -Wait -PassThru
+Write-Host ('cl exit: ' + $p.ExitCode)
+if ($p.ExitCode -ne 0) { exit 1 }
+
+# ---- 3) результат
 Write-Host '[3/3] готово'
 Remove-Item act_key.obj, act_key.res -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force dist | Out-Null
