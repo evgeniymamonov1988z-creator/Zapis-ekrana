@@ -13,6 +13,19 @@
    --silent -> no dialogs, exit code only (0 = ok, 2 = Ekrannik.exe not found)
 */
 
+/* EN text by default; RU only when the Windows UI language is Russian.
+   Language does not follow the product name: RU Windows -> Russian window,
+   any other Windows -> English window. */
+static int ui_ru(void) {
+    LANGID lid = GetUserDefaultUILanguage();
+    return PRIMARYLANGID(lid) == LANG_RUSSIAN;
+}
+
+static void msg2(const wchar_t *en, const wchar_t *ru) {
+    MessageBoxW(NULL, ui_ru() ? ru : en, L"Ekrannik",
+                MB_OK | MB_ICONINFORMATION | MB_SETFOREGROUND);
+}
+
 #define PRODUCT_CODE_STR "AE"
 #define LICENSE_FILE L"license_AE.dat"
 #define LICENSE_MARK L"f66e3325af59e2bcf8f06d84467009dc"
@@ -88,8 +101,6 @@ static void clear_date(void) {
     }
 }
 
-static int g_lang_en = 0;
-
 static void msg(const wchar_t *t) {
     MessageBoxW(NULL, t, L"Ekrannik", MB_OK | MB_ICONINFORMATION | MB_SETFOREGROUND);
 }
@@ -150,19 +161,8 @@ static void scan_subdirs(const wchar_t *base) {
     FindClose(h);
 }
 
-static void detect_lang(void) {
-    wchar_t ln[85] = {0};
-    if (GetEnvironmentVariableW(L"EKRANNIK_LANG", ln, 85) && ln[0]) {
-        g_lang_en = (ln[0] == L'e' || ln[0] == L'E') ? 1 : 0;
-        return;
-    }
-    LANGID lid = GetUserDefaultUILanguage();
-    g_lang_en = (PRIMARYLANGID(lid) != LANG_RUSSIAN) ? 1 : 0;
-}
-
 int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE hPrev, PWSTR cmdline, int show) {
     (void)hInst; (void)hPrev; (void)cmdline; (void)show;
-    detect_lang();
     int argc = 0;
     wchar_t **argv = CommandLineToArgvW(GetCommandLineW(), &argc);
     if (!argv) argc = 0;
@@ -225,27 +225,20 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE hPrev, PWSTR cmdline, int show) {
     for (int i = 0; i < g_n; i++) if (try_unlock(g_cand[i])) found = 1;
 
     if (!found) {
-        if (!silent) {
-            if (g_lang_en)
-                msg(L"Ekrannik.exe was not found.\n\n"
-                    L"Please install the program first, then run the key.");
-            else
-                msg(L"Ekrannik.exe \u043d\u0435 \u043d\u0430\u0439\u0434\u0435\u043d.\n\n"
-                    L"\u0421\u043d\u0430\u0447\u0430\u043b\u0430 \u0443\u0441\u0442\u0430\u043d\u043e\u0432\u0438\u0442\u0435 \u043f\u0440\u043e\u0433\u0440\u0430\u043c\u043c\u0443 \u0438 \u0437\u0430\u0442\u0435\u043c \u0437\u0430\u043f\u0443\u0441\u0442\u0438\u0442\u0435 \u043a\u043b\u044e\u0447.");
-        }
+        if (!silent) msg2(L"Ekrannik.exe was not found.\n\n"
+                          L"Please install the program first, then run the key.",
+                          L"Ekrannik.exe \u043d\u0435 \u043d\u0430\u0439\u0434\u0435\u043d.\n\n"
+                          L"\u0421\u043d\u0430\u0447\u0430\u043b\u0430 \u0443\u0441\u0442\u0430\u043d\u043e\u0432\u0438\u0442\u0435 \u043f\u0440\u043e\u0433\u0440\u0430\u043c\u043c\u0443 \u0438 \u0437\u0430\u0442\u0435\u043c \u0437\u0430\u043f\u0443\u0441\u0442\u0438\u0442\u0435 \u043a\u043b\u044e\u0447.");
         return 2;
     }
 
     clear_date();
 
-    if (!silent) {
-        if (g_lang_en)
-            msg(L"Done! You now have the full version.\n\n"
-                L"Open Ekrannik \u2014 there is no time limit.");
-        else
-            msg(L"\u0413\u043e\u0442\u043e\u0432\u043e! \u0422\u0435\u043f\u0435\u0440\u044c \u0443 \u0432\u0430\u0441 \u043f\u043e\u043b\u043d\u0430\u044f \u0432\u0435\u0440\u0441\u0438\u044f.\n\n"
-                L"\u041e\u0442\u043a\u0440\u043e\u0439\u0442\u0435 \u042d\u043a\u0440\u0430\u043d\u043d\u0438\u043a \u2014 \u043e\u0433\u0440\u0430\u043d\u0438\u0447\u0435\u043d\u0438\u0439 \u043f\u043e \u0434\u043d\u044f\u043c \u043d\u0435\u0442.");
-    }
+    if (!silent)
+        msg2(L"Done! You now have the full version.\n\n"
+             L"Open Ekrannik \u2014 there is no time limit.",
+             L"\u0413\u043e\u0442\u043e\u0432\u043e! \u0422\u0435\u043f\u0435\u0440\u044c \u0443 \u0432\u0430\u0441 \u043f\u043e\u043b\u043d\u0430\u044f \u0432\u0435\u0440\u0441\u0438\u044f.\n\n"
+             L"\u041e\u0442\u043a\u0440\u043e\u0439\u0442\u0435 \u042d\u043a\u0440\u0430\u043d\u043d\u0438\u043a \u2014 \u043e\u0433\u0440\u0430\u043d\u0438\u0447\u0435\u043d\u0438\u0439 \u043f\u043e \u0434\u043d\u044f\u043c \u043d\u0435\u0442.");
 
     self_delete();
     return 0;
