@@ -563,7 +563,7 @@ class DemoBlock:
             if self.status == 'licensed':
                 code, text = 'licensed', 'Полная версия'
             elif self.status == 'expired':
-                code, text = 'expired', 'Демо кончилось'
+                code, text = 'expired', 'Демо закончилось'
             else:
                 code, text = 'demo', f'Демо, осталось дней: {self.days_left}'
             data = {
