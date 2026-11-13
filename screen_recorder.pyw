@@ -324,6 +324,10 @@ def _is_demo_edition():
     try:
         if _has_license() or _has_full_flag():
             return False
+        # Файл лицензии есть, но метка не совпала (или повреждён) —
+        # считаем полной: человек уже заплатил, демо-режим ему не нужен.
+        if os.path.isfile(os.path.join(APP_DIR, LICENSE_FILE)):
+            return False
         return True
     except Exception:
         return True

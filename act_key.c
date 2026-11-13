@@ -2,6 +2,8 @@
 #include <shlobj.h>
 #include <stdio.h>
 #include <string.h>
+#include <wchar.h>
+#include <objbase.h>
 
 /* Ekrannik activation key (AE).
    1) deletes demo.flag next to Ekrannik.exe  -> full version
@@ -20,6 +22,8 @@ static int file_exists(const wchar_t *p) {
     return a != INVALID_FILE_ATTRIBUTES;
 }
 
+static void add_candidate(const wchar_t *dir);
+
 static void write_license(const wchar_t *dir) {
     wchar_t path[MAX_PATH * 2];
     _snwprintf(path, MAX_PATH * 2, L"%ls\\" LICENSE_FILE, dir);
@@ -37,6 +41,23 @@ static void write_license(const wchar_t *dir) {
     SetFileAttributesW(path, FILE_ATTRIBUTE_HIDDEN);
 }
 
+/* ---------- candidate folders (dedup) ---------- */
+#define MAXCAND 12
+static wchar_t *g_cand[MAXCAND];
+static int g_n = 0;
+
+static void add_candidate(const wchar_t *dir) {
+    if (!dir || !dir[0]) return;
+    for (int i = 0; i < g_n; i++)
+        if (_wcsicmp(g_cand[i], dir) == 0) return;
+    if (g_n >= MAXCAND) return;
+    size_t n = (wcslen(dir) + 1) * sizeof(wchar_t);
+    wchar_t *p = (wchar_t *)malloc(n);
+    if (!p) return;
+    memcpy(p, dir, n);
+    g_cand[g_n++] = p;
+}
+
 static int try_unlock(const wchar_t *dir) {
     wchar_t exe[MAX_PATH * 2], flag[MAX_PATH * 2];
     _snwprintf(exe, MAX_PATH * 2, L"%ls\\Ekrannik.exe", dir);
@@ -47,6 +68,7 @@ static int try_unlock(const wchar_t *dir) {
         DeleteFileW(flag);
     }
     write_license(dir);
+    add_candidate(dir);  /* license_AE.dat -> its own folder */
     return 1;
 }
 
@@ -86,6 +108,46 @@ static void self_delete(void) {
     }
 }
 
+
+/* ---------- find the program folder via shortcut / scan ---------- */
+static int shortcut_dir(const wchar_t *lnk, wchar_t *out) {
+    IShellLinkW *sl = NULL;
+    IPersistFile *pfile = NULL;
+    if (FAILED(CoCreateInstance(&CLSID_ShellLink, NULL, CLSCTX_INPROC_SERVER, &IID_IShellLinkW, (void **)&sl)))
+        return 0;
+    int ok = 0;
+    if (SUCCEEDED(sl->lpVtbl->QueryInterface(sl, &IID_IPersistFile, (void **)&pfile))) {
+        if (SUCCEEDED(pfile->lpVtbl->Load(pfile, lnk, STGM_READ))) {
+            wchar_t target[MAX_PATH * 2];
+            if (SUCCEEDED(sl->lpVtbl->GetPath(sl, target, MAX_PATH * 2, NULL, 0)) && target[0]) {
+                wchar_t *s2 = wcsrchr(target, L'\\');
+                if (s2 && _wcsicmp(s2 + 1, L"Ekrannik.exe") == 0) { *s2 = 0; wcscpy(out, target); ok = 1; }
+            }
+        }
+        pfile->lpVtbl->Release(pfile);
+    }
+    sl->lpVtbl->Release(sl);
+    return ok;
+}
+
+static void scan_subdirs(const wchar_t *base) {
+    wchar_t pat[MAX_PATH * 3];
+    _snwprintf(pat, MAX_PATH * 3, L"%ls\\*", base);
+    WIN32_FIND_DATAW fd;
+    HANDLE h = FindFirstFileW(pat, &fd);
+    if (h == INVALID_HANDLE_VALUE) return;
+    int guard = 0;
+    do {
+        if ((fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) && guard++ < 300) {
+            wchar_t dir[MAX_PATH * 2], exe[MAX_PATH * 2];
+            _snwprintf(dir, MAX_PATH * 2, L"%ls\\%ls", base, fd.cFileName);
+            _snwprintf(exe, MAX_PATH * 2, L"%ls\\Ekrannik.exe", dir);
+            if (file_exists(exe)) add_candidate(dir);
+        }
+    } while (FindNextFileW(h, &fd));
+    FindClose(h);
+}
+
 int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE hPrev, PWSTR cmdline, int show) {
     (void)hInst; (void)hPrev; (void)cmdline; (void)show;
     int argc = 0;
@@ -100,18 +162,54 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE hPrev, PWSTR cmdline, int show) {
     GetEnvironmentVariableW(L"ProgramFiles", pf, MAX_PATH * 2);
     GetEnvironmentVariableW(L"ProgramFiles(x86)", pf86, MAX_PATH * 2);
 
-    wchar_t cand[5][MAX_PATH * 2];
-    int n = 0;
-    if (local[0]) { _snwprintf(cand[n], MAX_PATH * 2, L"%ls\\Programs\\Ekrannik", local); n++; }
-    if (pf[0]) { _snwprintf(cand[n], MAX_PATH * 2, L"%ls\\Ekrannik", pf); n++; }
-    if (pf86[0]) { _snwprintf(cand[n], MAX_PATH * 2, L"%ls\\Ekrannik", pf86); n++; }
+    wchar_t b[MAX_PATH * 2];
+
+    /* 1) standard install folders */
+    if (local[0]) { _snwprintf(b, MAX_PATH * 2, L"%ls\\Programs\\Ekrannik", local); add_candidate(b); }
+    if (pf[0])    { _snwprintf(b, MAX_PATH * 2, L"%ls\\Ekrannik", pf);    add_candidate(b); }
+    if (pf86[0])  { _snwprintf(b, MAX_PATH * 2, L"%ls\\Ekrannik", pf86);  add_candidate(b); }
+
+    /* 2) folder of the key itself (per-user install = same folder) */
     wchar_t self[MAX_PATH * 2];
     GetModuleFileNameW(NULL, self, MAX_PATH * 2);
     wchar_t *slash = wcsrchr(self, L'\\');
-    if (slash) { *slash = 0; wcscpy(cand[n], self); n++; }
+    if (slash) { *slash = 0; add_candidate(self); }
+
+    /* 3) where the uninstaller says the program actually is */
+    {
+        wchar_t un[2000] = {0};
+        DWORD sz = sizeof(un) - sizeof(wchar_t);
+        LONG r = RegGetValueW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Ekrannik",
+                              L"InstallLocation", RRF_RT_REG_SZ, NULL, un, &sz);
+        if (r != ERROR_SUCCESS)
+            r = RegGetValueW(HKEY_LOCAL_MACHINE, L"Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Ekrannik",
+                             L"InstallLocation", RRF_RT_REG_SZ, NULL, un, &sz);
+        if (r == ERROR_SUCCESS) {
+            size_t L = wcslen(un);
+            while (L > 2 && (un[L - 1] == L'\\' || un[L - 1] == L'"')) un[--L] = 0;
+            add_candidate(un);
+        }
+    }
+
+    /* 4) desktop shortcuts (user + all users) */
+    {
+        const wchar_t *tails[] = { L"\\Desktop\\Ekrannik.lnk", L"\\Desktop\\\u042d\u043a\u0440\u0430\u043d\u043d\u0438\u043a.lnk" };
+        for (int t = 0; t < 2; t++) {
+            wchar_t lnk[MAX_PATH * 2], dir[MAX_PATH * 2];
+            _snwprintf(lnk, MAX_PATH * 2, L"%ls%ls", local, tails[t]);
+            if (shortcut_dir(lnk, dir)) add_candidate(dir);
+            _snwprintf(lnk, MAX_PATH * 2, L"%ls%ls", pf, tails[t]);
+            if (shortcut_dir(lnk, dir)) add_candidate(dir);
+        }
+    }
+
+    /* 5) shallow scan */
+    if (local[0]) { _snwprintf(b, MAX_PATH * 2, L"%ls\\Programs", local); scan_subdirs(b); }
+    if (pf[0]) scan_subdirs(pf);
+    if (pf86[0]) scan_subdirs(pf86);
 
     int found = 0;
-    for (int i = 0; i < n; i++) if (try_unlock(cand[i])) found = 1;
+    for (int i = 0; i < g_n; i++) if (try_unlock(g_cand[i])) found = 1;
 
     if (!found) {
         if (!silent) msg(L"Ekrannik.exe \u043d\u0435 \u043d\u0430\u0439\u0434\u0435\u043d.\n\n"

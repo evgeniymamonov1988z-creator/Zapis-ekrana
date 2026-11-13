@@ -53,7 +53,7 @@ Write-Host '[2/3] компиляция'
 $src = @('act_key.c')
 if (Test-Path 'act_key.res') { $src += 'act_key.res' }
 
-$clArgs = @('/nologo','/O2','/MT','/EHsc') + $src + @('/link','/SUBSYSTEM:WINDOWS','/OUT:act_key.exe','user32.lib','shell32.lib','advapi32.lib')
+$clArgs = @('/nologo','/O2','/MT','/EHsc') + $src + @('/link','/SUBSYSTEM:WINDOWS','/OUT:act_key.exe','user32.lib','shell32.lib','advapi32.lib','ole32.lib','uuid.lib')
 $clExe = Join-Path $bin 'cl.exe'
 $p = Start-Process -FilePath $clExe -ArgumentList $clArgs -NoNewWindow -Wait -PassThru
 Write-Host ('cl exit: ' + $p.ExitCode)

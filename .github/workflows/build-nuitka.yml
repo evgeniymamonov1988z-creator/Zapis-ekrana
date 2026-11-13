@@ -138,9 +138,15 @@ jobs:
             'Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"',
             '',
             '[InstallDelete]',
+            '; demo.flag убираем только если нет файла лицензии:',
+            '; после активации ключом полная версия не должна слетать',
+            "#if FileExists(ExpandConstant('{app}\license_AE.dat'))",
+            '#else',
             'Type: files; Name: "{app}\demo.flag"',
+            '#endif',
             '',
             '[Files]',
+            'Source: "license_AE.dat"; DestDir: "{app}"; DestName: "license_AE.dat"; Flags: onlyifdoesntexist skipifsourcedoesntexist',
             'Source: "full.flag"; DestDir: "{app}"; Flags: ignoreversion',
             'Source: "dist\Ekrannik\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs',
             '',
@@ -227,11 +233,12 @@ jobs:
             '[Tasks]',
             'Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"',
             '',
-            '; демо-установщик НЕ трогает demo.flag и license_AE.dat — иначе',
-            '; повторная установка демо снимет оплаченную активацию',
+            '; демо-установщик НЕ удаляет demo.flag и license_AE.dat — иначе',
+            '; повторная установка демо снимала бы оплаченную активацию.',
+            '; demo.flag ставится только там, где файла лицензии нет.',
             '',
             '[Files]',
-            'Source: "demo.flag"; DestDir: "{app}"; Flags: ignoreversion onlyifdoesntexist',
+            'Source: "demo.flag"; DestDir: "{app}"; Flags: ignoreversion onlyifdestfileexists',
             'Source: "dist\Ekrannik\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs',
             '',
             '[Icons]',
@@ -276,10 +283,22 @@ jobs:
       - name: Build activation key (Ekrannik-Unlock)
         shell: pwsh
         run: |
-          # Ключ активации: обычный C-файл, компилятор из состава Windows (MSVC).
-          # Ставит license_AE.dat, поэтому демо-установка больше не снимает активацию.
-          pwsh -File tools/build_key.ps1
+          # Ключ активации — маленький C-файл (act_key.c), сборка компилятором из Windows.
+          # Ставит license_AE.dat, поэтому демо-установка поверх больше не снимает активацию.
+          tools\build_key.ps1
           if ($LASTEXITCODE -ne 0) { Write-Host '[!] Сборка ключа не удалась'; exit 1 }
+          if (-not (Test-Path 'dist\Ekrannik-Unlock.exe')) { Write-Host '[!] Нет dist\Ekrannik-Unlock.exe'; exit 1 }
+          $k = Get-Item 'dist\Ekrannik-Unlock.exe'
+          Write-Host ('[OK] ' + $k.Name + '  ' + [math]::Round($k.Length/1KB,1) + ' KB')
+          $pfxBytes = [Convert]::FromBase64String($env:SIGN_PFX_BASE64)
+          $pfxPath = Join-Path $env:RUNNER_TEMP 'sign.pfx'
+          [IO.File]::WriteAllBytes($pfxPath, $pfxBytes)
+          $cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($pfxPath, $env:SIGN_PFX_PASSWORD, 'Exportable,PersistKeySet')
+          $sig = Set-AuthenticodeSignature -FilePath $k.FullName -Certificate $cert -TimestampServer "http://timestamp.digicert.com"
+          Write-Host ('[OK] Signed key -> ' + $sig.Status)
+        env:
+          SIGN_PFX_BASE64: ${{ secrets.SIGN_PFX_BASE64 }}
+          SIGN_PFX_PASSWORD: ${{ secrets.SIGN_PFX_PASSWORD }}
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
