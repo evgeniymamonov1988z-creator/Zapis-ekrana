@@ -438,11 +438,14 @@ class DemoBlock:
         self.licensed = (self.status == 'licensed')
         self._write_status()
         # Один тихий сигнал о запуске: статус и остаток дней.
-        # Демо, кончившееся демо и полная версия — всё считаем,
-        # чтобы было видно, дошёл ли человек до конца срока.
-        _demo_ping(self.code,
-                   'demo' if self.status == 'ok' else self.status,
-                   self.days_left if self.status == 'ok' else 0)
+        # Считаем ЛЮБОЙ запуск демо-сборки — и пока демо идёт, и если
+        # срок уже истёк (человек мог скачать и открыть позже трёх дней).
+        # Полную версию и компьютер владельца не считаем. Повторы
+        # не чаще раза в 6 часов отсекает сервер.
+        if _is_demo_edition():
+            _demo_ping(self.code,
+                       'demo' if self.status == 'ok' else self.status,
+                       self.days_left if self.status == 'ok' else 0)
 
     # ---- хранение даты первого запуска (реестр + файл) ----
     def _read_reg_date(self):
