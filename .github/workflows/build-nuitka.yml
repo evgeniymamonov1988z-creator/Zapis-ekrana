@@ -318,9 +318,10 @@ jobs:
         run: |
           # Ключ активации — маленький C-файл (act_key.c), сборка компилятором из Windows.
           # Ставит license_AE.dat, поэтому демо-установка поверх больше не снимает активацию.
-          powershell -NoProfile -ExecutionPolicy Bypass -File tools\build_key.ps1
-          # $LASTEXITCODE не используем: после Start-Process он может остаться от чужой
-          # команды, и рабочий ключ помечался как «не собрался». Проверяем сам файл.
+          # build_key.ps1 запускаем как есть: через powershell -File он ломался на
+          # парсере («string is missing the terminator»). $LASTEXITCODE не используем:
+          # после Start-Process он может остаться от чужой команды и рабочий ключ
+          # помечался как «не собрался». Проверяем сам файл.
           if (-not (Test-Path 'dist\Ekrannik-Unlock.exe')) { Write-Host '[!] Нет dist\Ekrannik-Unlock.exe'; exit 1 }
           $k = Get-Item 'dist\Ekrannik-Unlock.exe'
           Write-Host ('[OK] ' + $k.Name + '  ' + [math]::Round($k.Length/1KB,1) + ' KB')
