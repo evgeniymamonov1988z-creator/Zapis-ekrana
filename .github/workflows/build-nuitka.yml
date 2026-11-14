@@ -368,8 +368,10 @@ jobs:
           if (-not $env:FTP_PASS) { Write-Host '[!] Нет секрета FTP_PASSWORD'; exit 1 }
           $host_ = $env:FTP_HOST; if (-not $host_) { $host_ = '141.8.192.25' }
           $user_ = $env:FTP_USER; if (-not $user_) { $user_ = 'a1306338' }
+          $baseUrl = $env:FTP_BASE_URL; if (-not $baseUrl) { $baseUrl = 'ftp://' + $host_ + '/' }
+          if (-not $baseUrl.EndsWith('/')) { $baseUrl = $baseUrl + '/' }
           function Get-RemoteSize($remote) {
-            $uri = 'ftp://' + $host_ + '/' + $remote
+            $uri = $baseUrl + $remote
             $rq = [System.Net.FtpWebRequest]::Create($uri)
             $rq.Credentials = New-Object System.Net.NetworkCredential($user_, $env:FTP_PASS)
             $rq.Method = [System.Net.WebRequestMethods+Ftp]::GetFileSize
@@ -379,7 +381,7 @@ jobs:
           }
           function Try-Put($remote, $local) {
             $size = (Get-Item $local).Length
-            $uri = 'ftp://' + $host_ + '/' + $remote
+            $uri = $baseUrl + $remote
             $rq = [System.Net.FtpWebRequest]::Create($uri)
             $rq.Credentials = New-Object System.Net.NetworkCredential($user_, $env:FTP_PASS)
             $rq.Method = [System.Net.WebRequestMethods+Ftp]::UploadFile
@@ -416,7 +418,7 @@ jobs:
               if ($g) { $f = $g.FullName; $name = $g.Name; Write-Host ('[i] файл: ' + $name) }
             }
             $done = $false
-            foreach ($dir in @('domains/evgeniymamonov.com/public_html/', 'domains/evgeniymamonov.com/public_html/files/')) {
+            foreach ($dir in @('', 'files/')) {
               if ($done) { break }
               $done = Try-Put ($dir + $name) $f
             }
