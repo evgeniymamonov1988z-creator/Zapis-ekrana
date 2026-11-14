@@ -414,6 +414,28 @@ def _demo_ping(code, status='demo', days=0):
         pass
 
 
+
+def _launch_log(msg):
+    """Короткий лог запусков: %APPDATA%\\MAMONOV\\launch_AE.log —
+    чтобы видеть, что происходит при старте (Shift, открытие страницы)."""
+    try:
+        os.makedirs(_DEMO_DIR, exist_ok=True)
+        with open(os.path.join(_DEMO_DIR, 'launch_AE.log'), 'a',
+                  encoding='utf-8') as fh:
+            fh.write(time.strftime('%Y-%m-%d %H:%M:%S ') + str(msg) + '\n')
+    except Exception:
+        pass
+
+
+def _shift_down():
+    """Клавиша Shift зажата в момент старта — открываем страницу запуска
+    каждый раз и в любом режиме (демо или полная)."""
+    try:
+        import ctypes
+        return bool(ctypes.windll.user32.GetAsyncKeyState(0x10) & 0x8000)
+    except Exception:
+        return False
+
 # Мини-страницы Метрики: открываются один раз при первом запуске демо
 # на этой копии, отмечают цель «Запуск программы» и больше не появляются.
 _LAUNCH_PAGE = {
@@ -423,23 +445,16 @@ _LAUNCH_PAGE = {
 }
 
 
-def _shift_down():
-    """Клавиша Shift зажата в момент старта — открываем страницу запуска
-    каждый раз (для проверки, что Метрика её видит)."""
-    try:
-        import ctypes
-        return bool(ctypes.windll.user32.GetAsyncKeyState(0x10) & 0x8000)
-    except Exception:
-        return False
-
-
-def _metrika_launch_page(code):
+def _metrika_launch_page(code, force=False):
     """Один раз на копию открыть служебную страницу в браузере, чтобы
-    Метрика сама засчитала запуск демо. Тихо: если не получилось —
-    ничего не происходит, программа работает как обычно."""
+    Метрика сама засчитала запуск. Тихо: если не получилось —
+    ничего не происходит, программа работает как обычно.
+    force=True (Shift зажат) — открыть в любом режиме и каждый раз."""
     try:
-        manual = _shift_down()
+        manual = force or _shift_down()
+        _launch_log('metrika: код=%s shift=%s' % (code, manual))
         if _is_owner() and not manual:
+            _launch_log('metrika: владелец без Shift — страницу не открываем')
             return
         url = _LAUNCH_PAGE.get(str(code).upper())
         if not url:
@@ -447,21 +462,28 @@ def _metrika_launch_page(code):
         import hashlib
         cid = _copy_id(code)
         if not cid:
+            _launch_log('metrika: нет номера копии — пропуск')
             return
         os.makedirs(_DEMO_DIR, exist_ok=True)
         tok = hashlib.sha1((cid + url).encode('utf-8')).hexdigest()[:8]
         mark = os.path.join(_DEMO_DIR, f'.mh_{code}_{tok}')
         if os.path.isfile(mark) and not manual:
+            _launch_log('metrika: уже показывали — повторно не открываем')
             return
         try:
             with open(mark, 'w', encoding='utf-8') as fh:
                 fh.write(cid)
         except Exception:
-            return
+            pass
         import webbrowser
-        webbrowser.open(url, new=0, autoraise=False)
-    except Exception:
-        pass
+        try:
+            opened = webbrowser.open(url, new=0, autoraise=False)
+        except Exception as e:
+            _launch_log('metrika: ошибка браузера %r' % (e,))
+            return
+        _launch_log('metrika: браузер=%s url=%s' % (bool(opened), url))
+    except Exception as e:
+        _launch_log('metrika: общая ошибка %r' % (e,))
 
 
 class DemoBlock:
@@ -1990,6 +2012,15 @@ def main():
     try:
         root = tk.Tk()
         root.geometry(f"{ScreenRecorderApp.WIN_W}x{ScreenRecorderApp.FULL_H}")
+        # Shift проверяем ДО проверки «демо или полная»: нажатый Shift
+        # открывает страницу запуска в любом режиме и каждый раз.
+        try:
+            _sh = _shift_down()
+            _launch_log('старт: версия=%s demo=%s shift=%s'
+                        % (PRODUCT_CODE, _is_demo_edition(), _sh))
+            _metrika_launch_page(PRODUCT_CODE, force=_sh)
+        except Exception:
+            pass
         app = ScreenRecorderApp(root)
         def _quit():
             # При закрытии окна — сохранить запись, остановить ffmpeg
