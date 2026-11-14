@@ -12,7 +12,10 @@ venv/
 recordings/
 
 # Локальные файлы, которых нет в репозитории
-bin/
+# bin/ не игнорируем целиком: bin/ffmpeg.7z едет в репозитории,
+# сборка распаковывает его в bin/ffmpeg.exe и вшивает в установщик.
+bin/*
+!bin/ffmpeg.7z
 lib/
 *.log
 mic_debug_raw.txt
