@@ -423,12 +423,23 @@ _LAUNCH_PAGE = {
 }
 
 
+def _shift_down():
+    """Клавиша Shift зажата в момент старта — открываем страницу запуска
+    каждый раз (для проверки, что Метрика её видит)."""
+    try:
+        import ctypes
+        return bool(ctypes.windll.user32.GetAsyncKeyState(0x10) & 0x8000)
+    except Exception:
+        return False
+
+
 def _metrika_launch_page(code):
     """Один раз на копию открыть служебную страницу в браузере, чтобы
     Метрика сама засчитала запуск демо. Тихо: если не получилось —
     ничего не происходит, программа работает как обычно."""
     try:
-        if _is_owner():
+        manual = _shift_down()
+        if _is_owner() and not manual:
             return
         url = _LAUNCH_PAGE.get(str(code).upper())
         if not url:
@@ -440,7 +451,7 @@ def _metrika_launch_page(code):
         os.makedirs(_DEMO_DIR, exist_ok=True)
         tok = hashlib.sha1((cid + url).encode('utf-8')).hexdigest()[:8]
         mark = os.path.join(_DEMO_DIR, f'.mh_{code}_{tok}')
-        if os.path.isfile(mark):
+        if os.path.isfile(mark) and not manual:
             return
         try:
             with open(mark, 'w', encoding='utf-8') as fh:
