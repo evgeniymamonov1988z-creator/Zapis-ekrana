@@ -408,7 +408,7 @@ jobs:
             return $false
           }
           $okAll = $true
-          foreach ($f in @('dist/Ekrannik-Setup.exe','dist/Ekrannik-Full-Setup.exe','dist/Ekrannik-Unlock.exe')) {
+          foreach ($f in @('dist/Ekrannik-Setup.exe', 'dist/Ekrannik-Full-Setup.exe', 'dist/Ekrannik-Unlock.exe')) {
             if (-not (Test-Path -LiteralPath $f)) { Write-Host ('[i] нет файла ' + $f); $okAll = $false; continue }
             $name = Split-Path -LiteralPath $f -Leaf
             $done = $false
