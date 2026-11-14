@@ -387,10 +387,15 @@ jobs:
         run: |
           $ErrorActionPreference = 'Continue'
           if (-not $env:FTP_PASS) { Write-Host '[!] Нет секрета FTP_PASSWORD'; exit 1 }
+          # FTP_HOST в секретах может быть как '141.8.192.25', так и
+          # 'ftp://141.8.192.25' — раньше из-за этого выходило 'ftp://ftp://...'
+          # и все отправки падали с 'The requested URI is invalid for this FTP command'.
           $host_ = $env:FTP_HOST; if (-not $host_) { $host_ = '141.8.192.25' }
+          $host_ = ($host_ -replace '^[a-zA-Z]+://', '').Trim().TrimEnd('/')
           $user_ = $env:FTP_USER; if (-not $user_) { $user_ = 'a1306338' }
-          $baseUrl = $env:FTP_BASE_URL; if (-not $baseUrl) { $baseUrl = 'ftp://' + $host_ + '/' }
+          $baseUrl = 'ftp://' + $host_ + '/'
           if (-not $baseUrl.EndsWith('/')) { $baseUrl = $baseUrl + '/' }
+          Write-Host ('[i] FTP: ' + $baseUrl + ' (user ' + $user_ + ')')
           function Get-RemoteSize($remote) {
             $uri = $baseUrl + $remote
             $rq = [System.Net.FtpWebRequest]::Create($uri)
