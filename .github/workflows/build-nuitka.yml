@@ -32,6 +32,26 @@ jobs:
           pip install nuitka==2.4.8
           pip install -r requirements.txt
 
+      - name: Prepare embedded ffmpeg
+        shell: pwsh
+        run: |
+          # ffmpeg.exe (163 МБ) не влезает в лимит GitHub 100 МБ на файл,
+          # поэтому в репозитории лежит bin/ffmpeg.7z (~43 МБ).
+          # Распаковываем его в bin/ -> Nuitka вшивает внутрь установщика,
+          # и при первом запуске НИЧЕГО не скачивается, интернет не нужен.
+          if (Test-Path 'bin\ffmpeg.7z') {
+            New-Item -ItemType Directory -Path 'bin' -Force | Out-Null
+            7z x 'bin\ffmpeg.7z' '-obin' -y | Out-Null
+            if (Test-Path 'bin\ffmpeg.exe') {
+              Write-Host ('[OK] ffmpeg.exe распакован: ' + [math]::Round((Get-Item 'bin\ffmpeg.exe').Length/1MB,1) + ' MB')
+            } else {
+              Write-Host '[!] 7z не дал bin\ffmpeg.exe'
+              exit 1
+            }
+          } else {
+            Write-Host '[!] bin\ffmpeg.7z отсутствует — программа будет скачивать ffmpeg'
+          }
+
       - name: Build EXE with Nuitka
         shell: pwsh
         run: |
@@ -67,7 +87,8 @@ jobs:
             Write-Host '[OK] ffmpeg.exe будет встроен в .exe'
             $args += '--include-data-dir=bin=bin'
           } else {
-            Write-Host '[i] ffmpeg.exe нет в bin\ — программа скачает его при первом запуске'
+            Write-Host '[!] ffmpeg.exe нет в bin\ — сборка без движка, программа будет его скачивать'
+            exit 1
           }
           python -m nuitka @args screen_recorder.pyw
 

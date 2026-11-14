@@ -92,12 +92,12 @@ T = {
         'demo_buy_link': 'https://evgeniymamonov.com/buy.php?product=AE&lang=ru&utm_source=app&utm_medium=demo_end&utm_campaign=buy',
         'copy_label': '№ копии: {}',
         # Первый запуск — скачивание ffmpeg
-        'dl_title': 'Первый запуск — установка',
-        'dl_wait': 'Идёт первичная настройка, подождите…',
-        'dl_ffmpeg': 'Скачиваю ffmpeg (~90 МБ)…',
-        'dl_extract': 'Распаковываю ffmpeg…',
+        'dl_title': 'Подготовка к работе',
+        'dl_wait': 'Программа готовится к первому запуску. Это займёт около минуты.',
+        'dl_ffmpeg': 'Подготовка движка записи…',
+        'dl_extract': 'Завершаем настройку…',
         'dl_done': 'Готово!',
-        'dl_error': 'Не удалось скачать ffmpeg (проверьте интернет)',
+        'dl_error': 'Не удалось завершить подготовку. Проверьте интернет и запустите программу ещё раз.',
     },
     'en': {
         'title': 'Screen Recorder',
@@ -139,12 +139,12 @@ T = {
         'demo_buy_link': 'https://evgeniymamonov.com/buy.php?product=AE&lang=en&utm_source=app&utm_medium=demo_end&utm_campaign=buy',
         'copy_label': 'Copy #: {}',
         # First run — ffmpeg download
-        'dl_title': 'First run — setup',
-        'dl_wait': 'First-time setup, please wait…',
-        'dl_ffmpeg': 'Downloading ffmpeg (~90 MB)…',
-        'dl_extract': 'Extracting ffmpeg…',
+        'dl_title': 'Getting ready',
+        'dl_wait': 'Preparing for first run. This takes about a minute.',
+        'dl_ffmpeg': 'Preparing the recording engine…',
+        'dl_extract': 'Finishing setup…',
         'dl_done': 'Done!',
-        'dl_error': 'Failed to download ffmpeg (check your internet)',
+        'dl_error': 'Setup could not be completed. Check your internet connection and start the program again.',
     },
 }
 
